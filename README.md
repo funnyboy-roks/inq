@@ -38,6 +38,8 @@ These go in the `variables` section:
 variables {
     PORT 3000
     BASE_URL "http://localhost:${PORT}"
+    USER env="USERNAME"
+    PASSWORD file="password.txt"
 }
 ```
 
