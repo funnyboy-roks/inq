@@ -30,5 +30,8 @@ pub struct Cli {
     pub var: Vec<Variable>,
     #[clap(short, long, default_value = "inq.kdl")]
     pub config: PathBuf,
+    /// Print the raw body of the response
+    #[clap(short, long)]
+    pub raw: bool,
     pub query: String,
 }

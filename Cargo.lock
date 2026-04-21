@@ -669,9 +669,11 @@ dependencies = [
 name = "inq"
 version = "0.1.0"
 dependencies = [
+ "anstream",
  "clap",
  "kdl",
  "miette",
+ "owo-colors",
  "reqwest",
  "serde_json",
 ]
