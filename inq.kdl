@@ -1,8 +1,8 @@
 variables {
-    PORT 3000
+    PORT { env }
     BASE_URL "http://localhost:${PORT}"
     USER "john"
-    PASSWORD "password"
+    PASSWORD { env "INQ_PASSWORD" }
 }
 
 queries {

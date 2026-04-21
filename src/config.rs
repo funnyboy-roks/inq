@@ -1,13 +1,13 @@
 use std::{collections::HashMap, str::FromStr};
 
 use kdl::{KdlDocument, KdlNode};
-use miette::{Context, IntoDiagnostic, LabeledSpan, SourceSpan, bail};
+use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, RequestBuilder},
 };
 
-use crate::util::Interpolated;
+use crate::util::{Interpolated, WithLabel};
 
 #[derive(Debug, Clone)]
 pub enum Body<'a> {
@@ -73,7 +73,7 @@ impl<'a> Query<'a> {
                 }
             } else {
                 return Err(miette::miette! {
-                    labels = vec![LabeledSpan::new_with_span(Some("here".to_string()), body_node.span())],
+                    labels = vec![body_node.span().with_label("here")],
                     "Malformed `body` node",
                 });
             };
@@ -123,12 +123,13 @@ impl<'a> Query<'a> {
                 Body::Text(t) => builder.body(t.interpolate(&mut variable_getter)?.into_owned()),
                 Body::Json { json, span } => {
                     let interpolated = &json.interpolate(&mut variable_getter)?;
-                    let json = serde_json::Value::from_str(interpolated)
-                        .map_err(|e| miette::miette! {
-                            labels = vec![LabeledSpan::new_with_span(Some("in this JSON".to_string()), *span)],
+                    let json = serde_json::Value::from_str(interpolated).map_err(|e| {
+                        miette::miette! {
+                            labels = vec![span.with_label("in this JSON")],
                             "JSON Error: {}",
                             e
-                        })?;
+                        }
+                    })?;
 
                     builder.json(&json)
                 }
@@ -164,20 +165,71 @@ impl Config {
 
         for n in vars.iter_children() {
             let name = n.name().value().to_string();
-            let value = n
-                .entry(0)
-                .context("Expected <name> <value> variables.")?
-                .value();
-            let value = if let Some(s) = value.as_string() {
-                s.to_string()
-            } else if let Some(v) = value.as_integer() {
-                v.to_string()
-            } else if let Some(v) = value.as_float() {
-                v.to_string()
-            } else {
-                bail!("Expected variable value to be a string or number.");
-            };
-            out.insert(name, value);
+            match n.entries() {
+                [] if let Some(children) = n.children() => {
+                    if let Some(env) = children.get("env")
+                        && children.nodes().len() == 1
+                        && env.len() <= 1
+                    {
+                        let (var, span) = if let Some(val) = env.get(0) {
+                            if let Some(s) = val.as_string() {
+                                (s, env.span())
+                            } else {
+                                bail! {
+                                    labels = vec![env.span().with_label("here")],
+                                    "Expected string",
+                                }
+                            }
+                        } else {
+                            (&*name, n.name().span())
+                        };
+
+                        match std::env::var(var) {
+                            Ok(v) => {
+                                out.insert(name, v);
+                            }
+                            Err(e) => {
+                                bail! {
+                                    labels = vec![span.with_label("here")],
+                                    "Env Error: {}", e,
+                                }
+                            }
+                        }
+                    } else {
+                        bail! {
+                            labels = vec![n.span().with_label("here")],
+                            "Invalid variable structure",
+                        }
+                    }
+                }
+                [entry] => {
+                    if entry.name().is_some() {
+                        bail! {
+                            labels = vec![entry.span().with_label("here")],
+                            "Expected variables to be in the format of <name> <value>."
+                        }
+                    }
+
+                    let value = entry.value();
+                    let value = if let Some(s) = value.as_string() {
+                        s.to_string()
+                    } else if let Some(v) = value.as_integer() {
+                        v.to_string()
+                    } else if let Some(v) = value.as_float() {
+                        v.to_string()
+                    } else {
+                        bail! {
+                            labels = vec![entry.span().with_label("here")],
+                            "Expected variable value to be a string or number."
+                        }
+                    };
+                    out.insert(name, value);
+                }
+                _ => bail! {
+                    labels = vec![n.span().with_label("here")],
+                    "Expected variables to be in the format of <name> <value>."
+                },
+            }
         }
 
         Ok(out)

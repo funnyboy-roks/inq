@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashSet};
 
-use miette::bail;
+use miette::{LabeledSpan, SourceSpan, bail};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Interpolated<'a>(&'a str);
@@ -60,6 +60,16 @@ impl<'a> Interpolated<'a> {
         F: FnMut(&'a str) -> Option<&'a str>,
     {
         self.interpolate_inner(&mut get, &mut HashSet::new())
+    }
+}
+
+pub(crate) trait WithLabel {
+    fn with_label(self, label: impl Into<String>) -> LabeledSpan;
+}
+
+impl WithLabel for SourceSpan {
+    fn with_label(self, label: impl Into<String>) -> LabeledSpan {
+        LabeledSpan::new_with_span(Some(label.into()), self)
     }
 }
 

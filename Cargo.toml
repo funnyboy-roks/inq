@@ -2,7 +2,7 @@
 name = "inq"
 version = "0.1.0"
 edition = "2024"
-msrv = "1.90"
+msrv = "1.95"
 
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
