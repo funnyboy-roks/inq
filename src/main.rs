@@ -7,10 +7,8 @@ mod cli;
 mod config;
 mod util;
 
-fn main() -> miette::Result<()> {
-    let cli = Cli::parse();
-    let config = std::fs::read_to_string(&cli.config).into_diagnostic()?;
-    let config = Config::parse(config.parse()?)?;
+fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
+    let config = Config::parse(config_str.parse()?)?;
 
     let query = config.get_query(&cli.query)?.context("Query not defined")?;
 
@@ -27,4 +25,10 @@ fn main() -> miette::Result<()> {
     println!("{}", txt);
 
     Ok(())
+}
+
+fn main() -> miette::Result<()> {
+    let cli = Cli::parse();
+    let config_str = std::fs::read_to_string(&cli.config).into_diagnostic()?;
+    run(cli, &config_str).map_err(|m| m.with_source_code(config_str))
 }

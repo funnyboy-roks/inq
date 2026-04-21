@@ -1,7 +1,8 @@
 variables {
     PORT 3000
     BASE_URL "http://localhost:${PORT}"
-    USER "config-user"
+    USER "john"
+    PASSWORD "password"
 }
 
 queries {
@@ -9,8 +10,22 @@ queries {
         headers {
             user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0"
         }
-        body text="""
-        Hello from ${USER}
-        """
+        body json=#"""
+        {
+            "username": "${USER}",
+            "password": "${PASSWORD}"
+        }
+        """#
+    }
+    json POST "${BASE_URL}/json" {
+        headers {
+            user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0"
+        }
+        body json=#"""
+        {
+            "username": "${USER}",
+            "password": "${PASSWORD}"
+        }
+        """#
     }
 }

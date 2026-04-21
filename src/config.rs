@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, str::FromStr};
 
 use kdl::{KdlDocument, KdlNode};
-use miette::{Context, IntoDiagnostic, bail};
+use miette::{Context, IntoDiagnostic, LabeledSpan, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, RequestBuilder},
@@ -12,6 +12,10 @@ use crate::util::Interpolated;
 #[derive(Debug, Clone)]
 pub enum Body<'a> {
     Text(Interpolated<'a>),
+    Json {
+        json: Interpolated<'a>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -47,13 +51,33 @@ impl<'a> Query<'a> {
 
         let body = if let Some(children) = node.children()
             && let Some(body_node) = children.get("body")
-            && let Some(text) = body_node.entry("text")
         {
-            let text = text
-                .value()
-                .as_string()
-                .context("Expected body.text to be a string.")?;
-            Some(Body::Text(text.into()))
+            let body = if let Some(text) = body_node.entry("text")
+                && body_node.len() == 1
+            {
+                let text = text
+                    .value()
+                    .as_string()
+                    .context("Expected body.text to be a string.")?;
+                Body::Text(text.into())
+            } else if let Some(json) = body_node.entry("json")
+                && body_node.len() == 1
+            {
+                Body::Json {
+                    json: json
+                        .value()
+                        .as_string()
+                        .context("Expected body.json to be a string.")?
+                        .into(),
+                    span: json.span(),
+                }
+            } else {
+                return Err(miette::miette! {
+                    labels = vec![LabeledSpan::new_with_span(Some("here".to_string()), body_node.span())],
+                    "Malformed `body` node",
+                });
+            };
+            Some(body)
         } else {
             None
         };
@@ -96,7 +120,18 @@ impl<'a> Query<'a> {
 
         if let Some(body) = &self.body {
             builder = match body {
-                Body::Text(t) => builder.body(t.interpolate(&mut variable_getter)?.to_string()),
+                Body::Text(t) => builder.body(t.interpolate(&mut variable_getter)?.into_owned()),
+                Body::Json { json, span } => {
+                    let interpolated = &json.interpolate(&mut variable_getter)?;
+                    let json = serde_json::Value::from_str(interpolated)
+                        .map_err(|e| miette::miette! {
+                            labels = vec![LabeledSpan::new_with_span(Some("in this JSON".to_string()), *span)],
+                            "JSON Error: {}",
+                            e
+                        })?;
+
+                    builder.json(&json)
+                }
             };
         }
 
