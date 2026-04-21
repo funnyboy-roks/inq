@@ -10,8 +10,8 @@ The configuration uses [kdl](https://kdl.dev)
 variables {
     PORT 3000
     BASE_URL "http://localhost:${PORT}"
-    USER "john"
-    PASSWORD { env }
+    USER env="USERNAME"
+    PASSWORD file="password.txt"
 }
 
 queries {

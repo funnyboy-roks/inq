@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, str::FromStr};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, str::FromStr};
 
 use kdl::{KdlDocument, KdlNode};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
@@ -165,6 +165,7 @@ impl<'a> Query<'a> {
 #[derive(Debug, Clone)]
 enum Variable {
     Str(String),
+    File(PathBuf),
     Env { var: String, span: SourceSpan },
 }
 
@@ -172,6 +173,19 @@ impl Variable {
     fn get_string(&self) -> miette::Result<Cow<'_, str>> {
         match self {
             Variable::Str(s) => Ok(Cow::Borrowed(s)),
+            Variable::File(path) => std::fs::read_to_string(path)
+                .map(|mut s| {
+                    // effectively just `trim`, but it does so without needing to re-allocate
+                    while s.ends_with(char::is_whitespace) {
+                        s.pop();
+                    }
+                    while s.starts_with(char::is_whitespace) {
+                        s.remove(0);
+                    }
+                    Cow::Owned(s)
+                })
+                .into_diagnostic()
+                .with_context(|| format!("Reading variable from path {:?}", path)),
             Variable::Env { var, span } => match std::env::var(var) {
                 Ok(v) => Ok(Cow::Owned(v)),
                 Err(e) => {
@@ -208,58 +222,60 @@ impl Config {
         for n in vars.iter_children() {
             let name = n.name().value().to_string();
             match n.entries() {
-                [] if let Some(children) = n.children() => {
-                    if let Some(env) = children.get("env")
-                        && children.nodes().len() == 1
-                        && env.len() <= 1
-                    {
-                        let (var, span) = if let Some(val) = env.get(0) {
-                            if let Some(s) = val.as_string() {
-                                (s.to_string(), env.span())
-                            } else {
-                                bail! {
-                                    labels = vec![env.span().with_label("here")],
-                                    "Expected string",
-                                }
-                            }
-                        } else {
-                            (name.clone(), n.name().span())
-                        };
-
-                        out.insert(name, Variable::Env { var, span });
-                    } else {
-                        bail! {
-                            labels = vec![n.span().with_label("here")],
-                            "Invalid variable structure",
-                        }
-                    }
-                }
                 [entry] => {
-                    if entry.name().is_some() {
-                        bail! {
-                            labels = vec![entry.span().with_label("here")],
-                            "Expected variables to be in the format of <name> <value>."
-                        }
-                    }
+                    if let Some(ename) = entry.name() {
+                        if ename.value() == "file" {
+                            let Some(s) = entry.value().as_string() else {
+                                bail! {
+                                    labels = vec![entry.span().with_label("here")],
+                                    "File path must be a string"
+                                }
+                            };
 
-                    let value = entry.value();
-                    let value = if let Some(s) = value.as_string() {
-                        s.to_string()
-                    } else if let Some(v) = value.as_integer() {
-                        v.to_string()
-                    } else if let Some(v) = value.as_float() {
-                        v.to_string()
-                    } else {
-                        bail! {
-                            labels = vec![entry.span().with_label("here")],
-                            "Expected variable value to be a string or number."
+                            let path = std::env::current_dir().into_diagnostic()?.join(s);
+
+                            out.insert(name, Variable::File(path));
+                        } else if ename.value() == "env" {
+                            let Some(s) = entry.value().as_string() else {
+                                bail! {
+                                    labels = vec![entry.span().with_label("here")],
+                                    "Environment variable must be a string"
+                                }
+                            };
+
+                            out.insert(
+                                name,
+                                Variable::Env {
+                                    var: s.into(),
+                                    span: entry.span(),
+                                },
+                            );
+                        } else {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Expected variables to be in the format of <name> <value>."
+                            }
                         }
-                    };
-                    out.insert(name, Variable::Str(value));
+                    } else {
+                        let value = entry.value();
+                        let value = if let Some(s) = value.as_string() {
+                            s.to_string()
+                        } else if let Some(v) = value.as_integer() {
+                            v.to_string()
+                        } else if let Some(v) = value.as_float() {
+                            v.to_string()
+                        } else {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Expected variable value to be a string or number."
+                            }
+                        };
+                        out.insert(name, Variable::Str(value));
+                    }
                 }
                 _ => bail! {
                     labels = vec![n.span().with_label("here")],
-                    "Expected variables to be in the format of <name> <value>."
+                    "Expected variable value to be one of `<value>`, `file=<path>`, or `env=<env-var>`."
                 },
             }
         }

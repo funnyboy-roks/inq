@@ -2,8 +2,8 @@ variables {
     PORT 3000
     BASE_URL "http://localhost:${PORT}"
     USER "john"
-    PASSWORD "password"
-    CODE { env }
+    PASSWORD file="password"
+    CODE env="CODE"
 }
 
 queries {
