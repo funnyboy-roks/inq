@@ -6,7 +6,10 @@ use miette::{Context, IntoDiagnostic};
 use reqwest::{blocking::Client, header};
 use serde_json::Value as JsonValue;
 
-use crate::{cli::Cli, config::Config};
+use crate::{
+    cli::{Cli, SubCmd},
+    config::Config,
+};
 
 mod cli;
 mod config;
@@ -57,11 +60,15 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
 }
 
 fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
+    let SubCmd::Query(ref query_cmd) = cli.subcmd;
+
     let config = Config::parse(config_str.parse()?)?;
 
     let client = Client::new();
 
-    let query = config.get_query(&cli.query)?.context("Query not defined")?;
+    let query = config
+        .get_query(&query_cmd.query)?
+        .context("Query not defined")?;
 
     let (req, req_body) = query.to_request(&client, |n| {
         if let Some(v) = cli.get_variable(n) {
@@ -156,7 +163,7 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
             }
         }
 
-        if !cli.raw
+        if !query_cmd.raw
             && let Some(header) = res.headers().get(header::CONTENT_TYPE)
             && header == "application/json"
         {

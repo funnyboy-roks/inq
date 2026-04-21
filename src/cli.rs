@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 
 #[derive(Debug, Clone)]
 pub struct Variable {
@@ -25,15 +25,28 @@ impl Variable {
 }
 
 #[derive(Debug, Parser)]
-pub struct Cli {
-    #[clap(short, long, value_parser = Variable::parse)]
-    pub var: Vec<Variable>,
-    #[clap(short, long, default_value = "inq.kdl")]
-    pub config: PathBuf,
+pub struct QueryCommand {
     /// Print the raw body of the response
     #[clap(short, long)]
     pub raw: bool,
     pub query: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SubCmd {
+    /// Execute a query
+    #[clap(alias = "q")]
+    Query(QueryCommand),
+}
+
+#[derive(Debug, Parser)]
+pub struct Cli {
+    #[clap(short, long, value_parser = Variable::parse)]
+    var: Vec<Variable>,
+    #[clap(short, long, default_value = "inq.kdl")]
+    pub config: PathBuf,
+    #[clap(subcommand)]
+    pub subcmd: SubCmd,
 }
 
 impl Cli {
