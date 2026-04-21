@@ -1,0 +1,16 @@
+variables {
+    PORT 3000
+    BASE_URL "http://localhost:${PORT}"
+    USER "config-user"
+}
+
+queries {
+    login POST "${BASE_URL}/login" {
+        headers {
+            user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0"
+        }
+        body text="""
+        Hello from ${USER}
+        """
+    }
+}
