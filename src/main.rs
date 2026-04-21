@@ -111,7 +111,7 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
                     eprintln!();
                 }
                 config::PopulatedBody::Text(cow) => {
-                    eprintln!("{}:", "Response Body (Raw)".cyan());
+                    eprintln!("{}:", "Request Body (Raw)".cyan());
 
                     eprintln!("{}", cow);
                 }
@@ -163,18 +163,22 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
             }
         }
 
-        if !query_cmd.raw
-            && let Some(header) = res.headers().get(header::CONTENT_TYPE)
-            && header == "application/json"
+        if let Some(content_len) = res.content_length()
+            && content_len != 0
         {
-            eprintln!("{}:", "Response Body (JSON)".cyan());
-            let json: JsonValue = res.json().into_diagnostic()?;
-            pretty_print_json(&mut anstream::stdout().lock(), json, 0).into_diagnostic()?;
-            println!();
-        } else {
-            eprintln!("{}:", "Response Body (Raw)".cyan());
+            if !query_cmd.raw
+                && let Some(header) = res.headers().get(header::CONTENT_TYPE)
+                && header == "application/json"
+            {
+                eprintln!("{}:", "Response Body (JSON)".cyan());
+                let json: JsonValue = res.json().into_diagnostic()?;
+                pretty_print_json(&mut anstream::stdout().lock(), json, 0).into_diagnostic()?;
+                println!();
+            } else {
+                eprintln!("{}:", "Response Body (Raw)".cyan());
 
-            std::io::copy(&mut res, &mut std::io::stdout().lock()).into_diagnostic()?;
+                std::io::copy(&mut res, &mut std::io::stdout().lock()).into_diagnostic()?;
+            }
         }
     }
 
