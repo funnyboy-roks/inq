@@ -32,7 +32,7 @@ queries {
 And then run it with
 
 ```sh
-inq login
+inq query login
 # override variables with
-inq login --var USER=someone-else
+inq query login --var USER=someone-else
 ```
