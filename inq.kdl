@@ -19,6 +19,7 @@ queries {
         """#
     }
     status GET "${BASE_URL}/status/${CODE}" {
+    // status GET "https://httpbin.org/status/${CODE}" {
         headers {
         }
     }

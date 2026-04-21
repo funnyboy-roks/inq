@@ -4,8 +4,9 @@ use kdl::{KdlDocument, KdlNode};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
-    blocking::{Client, RequestBuilder},
+    blocking::{Client, Request},
 };
+use serde_json::Value as JsonValue;
 
 use crate::util::{Interpolated, WithLabel};
 
@@ -16,6 +17,12 @@ pub enum Body<'a> {
         json: Interpolated<'a>,
         span: SourceSpan,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum PopulatedBody<'a> {
+    Text(Cow<'a, str>),
+    Json(JsonValue),
 }
 
 #[derive(Debug, Clone)]
@@ -107,7 +114,11 @@ impl<'a> Query<'a> {
         }))
     }
 
-    pub(crate) fn to_request<F>(&self, mut variable_getter: F) -> miette::Result<RequestBuilder>
+    pub(crate) fn to_request<F>(
+        &self,
+        client: &Client,
+        mut variable_getter: F,
+    ) -> miette::Result<(Request, Option<PopulatedBody<'a>>)>
     where
         F: FnMut(&str) -> miette::Result<Option<String>>,
     {
@@ -115,12 +126,16 @@ impl<'a> Query<'a> {
             .url
             .interpolate(&mut variable_getter)
             .context("Interpolating URL")?;
-        eprintln!("Sending request to {}", url);
-        let mut builder = Client::new().request(self.method.clone(), &*url);
 
-        if let Some(body) = &self.body {
-            builder = match body {
-                Body::Text(t) => builder.body(t.interpolate(&mut variable_getter)?.into_owned()),
+        let mut builder = client.request(self.method.clone(), &*url);
+
+        let populated_body = if let Some(body) = &self.body {
+            match body {
+                Body::Text(t) => {
+                    let s = t.interpolate(&mut variable_getter)?;
+                    builder = builder.body(s.clone().into_owned());
+                    Some(PopulatedBody::Text(s))
+                }
                 Body::Json { json, span } => {
                     let interpolated = &json.interpolate(&mut variable_getter)?;
                     let json = serde_json::Value::from_str(interpolated).map_err(|e| {
@@ -131,16 +146,19 @@ impl<'a> Query<'a> {
                         }
                     })?;
 
-                    builder.json(&json)
+                    builder = builder.json(&json);
+                    Some(PopulatedBody::Json(json))
                 }
-            };
-        }
+            }
+        } else {
+            None
+        };
 
         for (&k, &v) in &self.headers {
             builder = builder.header(k, &*v.interpolate(&mut variable_getter)?);
         }
 
-        Ok(builder)
+        Ok((builder.build().into_diagnostic()?, populated_body))
     }
 }
 
@@ -208,13 +226,7 @@ impl Config {
                             (name.clone(), n.name().span())
                         };
 
-                        out.insert(
-                            name,
-                            Variable::Env {
-                                var: var.into(),
-                                span,
-                            },
-                        );
+                        out.insert(name, Variable::Env { var, span });
                     } else {
                         bail! {
                             labels = vec![n.span().with_label("here")],
