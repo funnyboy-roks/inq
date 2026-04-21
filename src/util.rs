@@ -11,21 +11,21 @@ impl<'a> From<&'a str> for Interpolated<'a> {
     }
 }
 
-impl<'a> Interpolated<'a> {
-    fn interpolate_inner<F>(
-        self,
+impl Interpolated<'_> {
+    fn interpolate_inner<'a, F>(
+        s: Cow<'a, str>,
         get: &mut F,
-        expanding: &mut HashSet<&'a str>,
+        expanding: &mut HashSet<String>,
     ) -> miette::Result<Cow<'a, str>>
     where
-        F: FnMut(&'a str) -> Option<&'a str>,
+        F: FnMut(&str) -> miette::Result<Option<String>>,
     {
-        if !self.0.contains("${") {
-            return Ok(Cow::Borrowed(self.0));
+        if !s.contains("${") {
+            return Ok(s);
         }
 
         let mut out = String::new();
-        let mut rest = self.0;
+        let mut rest = &*s;
         while !rest.is_empty() {
             // ${VAR_NAME}
             if let Some(pos) = rest.find("${") {
@@ -36,14 +36,14 @@ impl<'a> Interpolated<'a> {
                 if let Some(pos) = rest.find("}") {
                     let var_name = &rest[..pos];
                     if expanding.contains(var_name) {
-                        bail!("Recursive expansion detected in {:?}", self.0);
+                        bail!("Recursive expansion detected in {:?}", s);
                     }
                     rest = &rest[pos + 1..];
-                    let var = get(var_name).ok_or_else(|| {
+                    let ovar = get(var_name)?.ok_or_else(|| {
                         miette::miette!("Undefined variable '{}'", var_name.to_string())
                     })?;
-                    expanding.insert(var_name);
-                    let var = Self(var).interpolate_inner(get, expanding)?;
+                    expanding.insert(var_name.to_string());
+                    let var = Self::interpolate_inner(Cow::Borrowed(&ovar), get, expanding)?;
                     expanding.remove(var_name);
                     out.push_str(&var);
                 }
@@ -54,12 +54,14 @@ impl<'a> Interpolated<'a> {
         }
         Ok(Cow::Owned(out))
     }
+}
 
+impl<'a> Interpolated<'a> {
     pub(crate) fn interpolate<F>(self, mut get: F) -> miette::Result<Cow<'a, str>>
     where
-        F: FnMut(&'a str) -> Option<&'a str>,
+        F: FnMut(&str) -> miette::Result<Option<String>>,
     {
-        self.interpolate_inner(&mut get, &mut HashSet::new())
+        Self::interpolate_inner(Cow::Borrowed(self.0), &mut get, &mut HashSet::new())
     }
 }
 
@@ -81,7 +83,7 @@ mod test {
     #[test]
     fn no_vars() {
         let s = Interpolated::from("hello world")
-            .interpolate(|_| None)
+            .interpolate(|_| Ok(None))
             .unwrap();
         assert!(matches!(s, Cow::Borrowed(_)));
         assert_eq!(s, "hello world")
@@ -90,7 +92,7 @@ mod test {
     #[test]
     fn one_variable() {
         let s = Interpolated::from("hello ${LOC}")
-            .interpolate(|n| (n == "LOC").then_some("world"))
+            .interpolate(|n| Ok((n == "LOC").then_some("world".to_string())))
             .unwrap();
         assert_eq!(s, "hello world")
     }
@@ -98,10 +100,12 @@ mod test {
     #[test]
     fn two_variable() {
         let s = Interpolated::from("hello ${FOO} ${BAR} baz")
-            .interpolate(|n| match n {
-                "FOO" => Some("foo"),
-                "BAR" => Some("bar"),
-                _ => None,
+            .interpolate(|n| {
+                Ok(match n {
+                    "FOO" => Some("foo".into()),
+                    "BAR" => Some("bar".into()),
+                    _ => None,
+                })
             })
             .unwrap();
         assert_eq!(s, "hello foo bar baz")
@@ -110,9 +114,11 @@ mod test {
     #[test]
     fn repeat() {
         let s = Interpolated::from("hello ${FOO} ${FOO} baz")
-            .interpolate(|n| match n {
-                "FOO" => Some("foo"),
-                _ => None,
+            .interpolate(|n| {
+                Ok(match n {
+                    "FOO" => Some("foo".into()),
+                    _ => None,
+                })
             })
             .unwrap();
         assert_eq!(s, "hello foo foo baz")
@@ -121,10 +127,12 @@ mod test {
     #[test]
     fn recursive() {
         let s = Interpolated::from("http://${HOST}/login")
-            .interpolate(|n| match n {
-                "HOST" => Some("localhost:${PORT}"),
-                "PORT" => Some("6969"),
-                _ => None,
+            .interpolate(|n| {
+                Ok(match n {
+                    "HOST" => Some("localhost:${PORT}".into()),
+                    "PORT" => Some("6969".into()),
+                    _ => None,
+                })
             })
             .unwrap();
         assert_eq!(s, "http://localhost:6969/login")
@@ -132,19 +140,23 @@ mod test {
 
     #[test]
     fn recursive_inf() {
-        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| match n {
-            "HOST" => Some("localhost:${PORT}"),
-            "PORT" => Some("${HOST}"),
-            _ => None,
+        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| {
+            Ok(match n {
+                "HOST" => Some("localhost:${PORT}".into()),
+                "PORT" => Some("${HOST}".into()),
+                _ => None,
+            })
         });
         assert!(s.is_err())
     }
 
     #[test]
     fn recursive_self() {
-        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| match n {
-            "HOST" => Some("localhost:${HOST}"),
-            _ => None,
+        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| {
+            Ok(match n {
+                "HOST" => Some("localhost:${HOST}".into()),
+                _ => None,
+            })
         });
         assert!(s.is_err())
     }

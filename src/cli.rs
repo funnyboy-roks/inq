@@ -35,3 +35,9 @@ pub struct Cli {
     pub raw: bool,
     pub query: String,
 }
+
+impl Cli {
+    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
+        self.var.iter().find(|v| v.name == name).map(|s| &*s.value)
+    }
+}

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{borrow::Cow, collections::HashMap, str::FromStr};
 
 use kdl::{KdlDocument, KdlNode};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
@@ -109,7 +109,7 @@ impl<'a> Query<'a> {
 
     pub(crate) fn to_request<F>(&self, mut variable_getter: F) -> miette::Result<RequestBuilder>
     where
-        F: FnMut(&'a str) -> Option<&'a str>,
+        F: FnMut(&str) -> miette::Result<Option<String>>,
     {
         let url = self
             .url
@@ -144,9 +144,33 @@ impl<'a> Query<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+enum Variable {
+    Str(String),
+    Env { var: String, span: SourceSpan },
+}
+
+impl Variable {
+    fn get_string(&self) -> miette::Result<Cow<'_, str>> {
+        match self {
+            Variable::Str(s) => Ok(Cow::Borrowed(s)),
+            Variable::Env { var, span } => match std::env::var(var) {
+                Ok(v) => Ok(Cow::Owned(v)),
+                Err(e) => {
+                    bail! {
+                        labels = vec![span.with_label("here")],
+                        "Env Error: {}", e,
+                    }
+                }
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Config {
     doc: KdlDocument,
-    variables: HashMap<String, String>,
+    variables: HashMap<String, Variable>,
 }
 
 impl Config {
@@ -157,7 +181,7 @@ impl Config {
         })
     }
 
-    fn parse_variables(doc: &KdlDocument) -> miette::Result<HashMap<String, String>> {
+    fn parse_variables(doc: &KdlDocument) -> miette::Result<HashMap<String, Variable>> {
         let mut out = HashMap::new();
         let Some(vars) = doc.get("variables") else {
             return Ok(out);
@@ -173,7 +197,7 @@ impl Config {
                     {
                         let (var, span) = if let Some(val) = env.get(0) {
                             if let Some(s) = val.as_string() {
-                                (s, env.span())
+                                (s.to_string(), env.span())
                             } else {
                                 bail! {
                                     labels = vec![env.span().with_label("here")],
@@ -181,20 +205,16 @@ impl Config {
                                 }
                             }
                         } else {
-                            (&*name, n.name().span())
+                            (name.clone(), n.name().span())
                         };
 
-                        match std::env::var(var) {
-                            Ok(v) => {
-                                out.insert(name, v);
-                            }
-                            Err(e) => {
-                                bail! {
-                                    labels = vec![span.with_label("here")],
-                                    "Env Error: {}", e,
-                                }
-                            }
-                        }
+                        out.insert(
+                            name,
+                            Variable::Env {
+                                var: var.into(),
+                                span,
+                            },
+                        );
                     } else {
                         bail! {
                             labels = vec![n.span().with_label("here")],
@@ -223,7 +243,7 @@ impl Config {
                             "Expected variable value to be a string or number."
                         }
                     };
-                    out.insert(name, value);
+                    out.insert(name, Variable::Str(value));
                 }
                 _ => bail! {
                     labels = vec![n.span().with_label("here")],
@@ -235,8 +255,11 @@ impl Config {
         Ok(out)
     }
 
-    pub fn get_variable<'a>(&'a self, name: &str) -> Option<&'a str> {
-        self.variables.get(name).map(AsRef::as_ref)
+    pub fn get_variable<'a>(&'a self, name: &str) -> miette::Result<Option<Cow<'a, str>>> {
+        self.variables
+            .get(name)
+            .map(Variable::get_string)
+            .transpose()
     }
 
     pub fn get_query<'a>(&'a self, name: &str) -> miette::Result<Option<Query<'a>>> {

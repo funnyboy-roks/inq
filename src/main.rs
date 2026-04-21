@@ -1,4 +1,4 @@
-use std::{fmt::Display, time::Instant};
+use std::{borrow::Cow, fmt::Display, time::Instant};
 
 use anstream::{ColorChoice, eprintln, print, println};
 use clap::Parser;
@@ -62,11 +62,11 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let query = config.get_query(&cli.query)?.context("Query not defined")?;
 
     let req = query.to_request(|n| {
-        cli.var
-            .iter()
-            .find(|v| v.name == n)
-            .map(|v| &*v.value)
-            .or_else(|| config.get_variable(n))
+        if let Some(v) = cli.get_variable(n) {
+            Ok(Some(String::from(v)))
+        } else {
+            Ok(config.get_variable(n)?.map(Cow::into_owned))
+        }
     })?;
 
     let start = Instant::now();
