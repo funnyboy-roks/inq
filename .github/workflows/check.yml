@@ -77,7 +77,7 @@ jobs:
       - name: Install cargo-docs-rs
         uses: dtolnay/install@cargo-docs-rs
       - name: cargo docs-rs
-        run: cargo docs-rs -p bauer
+        run: cargo docs-rs
   readme:
     runs-on: ubuntu-latest
     name: ubuntu / stable / readme
