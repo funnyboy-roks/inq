@@ -71,7 +71,7 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
         .context("Query not defined")?;
 
     let (req, req_body) = query.to_request(&client, |n| {
-        if let Some(v) = cli.get_variable(n) {
+        if let Some(v) = query_cmd.get_variable(n) {
             Ok(Some(String::from(v)))
         } else {
             Ok(config.get_variable(n)?.map(Cow::into_owned))

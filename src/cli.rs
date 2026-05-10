@@ -30,6 +30,14 @@ pub struct QueryCommand {
     #[clap(short, long)]
     pub raw: bool,
     pub query: String,
+    #[clap(short, long, value_parser = Variable::parse)]
+    var: Vec<Variable>,
+}
+
+impl QueryCommand {
+    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
+        self.var.iter().find(|v| v.name == name).map(|s| &*s.value)
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -41,16 +49,8 @@ pub enum SubCmd {
 
 #[derive(Debug, Parser)]
 pub struct Cli {
-    #[clap(short, long, value_parser = Variable::parse)]
-    var: Vec<Variable>,
     #[clap(short, long, default_value = "inq.kdl")]
     pub config: PathBuf,
     #[clap(subcommand)]
     pub subcmd: SubCmd,
-}
-
-impl Cli {
-    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
-        self.var.iter().find(|v| v.name == name).map(|s| &*s.value)
-    }
 }
