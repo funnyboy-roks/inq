@@ -59,32 +59,37 @@ impl<'a> Query<'a> {
         let body = if let Some(children) = node.children()
             && let Some(body_node) = children.get("body")
         {
-            let body = if let Some(text) = body_node.entry("text")
-                && body_node.len() == 1
-            {
-                let text = text
-                    .value()
-                    .as_string()
-                    .context("Expected body.text to be a string.")?;
-                Body::Text(text.into())
-            } else if let Some(json) = body_node.entry("json")
-                && body_node.len() == 1
-            {
-                Body::Json {
-                    json: json
+            match body_node.entries() {
+                [entry]
+                    if let Some(name) = entry.name()
+                        && name.value() == "text" =>
+                {
+                    let text = entry
                         .value()
                         .as_string()
-                        .context("Expected body.json to be a string.")?
-                        .into(),
-                    span: json.span(),
+                        .context("Expected body.text to be a string.")?;
+                    Some(Body::Text(text.into()))
                 }
-            } else {
-                return Err(miette::miette! {
-                    labels = vec![body_node.span().with_label("here")],
-                    "Malformed `body` node",
-                });
-            };
-            Some(body)
+                [entry]
+                    if let Some(name) = entry.name()
+                        && name.value() == "json" =>
+                {
+                    Some(Body::Json {
+                        json: entry
+                            .value()
+                            .as_string()
+                            .context("Expected body.json to be a string.")?
+                            .into(),
+                        span: entry.span(),
+                    })
+                }
+                _ => {
+                    return Err(miette::miette! {
+                        labels = vec![body_node.span().with_label("here")],
+                        "Malformed `body` node",
+                    });
+                }
+            }
         } else {
             None
         };
@@ -219,41 +224,47 @@ impl Config {
             return Ok(out);
         };
 
+        out.reserve(vars.children().map(|d| d.nodes().len()).unwrap_or(0));
+
         for n in vars.iter_children() {
             let name = n.name().value().to_string();
             match n.entries() {
                 [entry] => {
                     if let Some(ename) = entry.name() {
-                        if ename.value() == "file" {
-                            let Some(s) = entry.value().as_string() else {
+                        match ename.value() {
+                            "file" => {
+                                let Some(s) = entry.value().as_string() else {
+                                    bail! {
+                                        labels = vec![entry.span().with_label("here")],
+                                        "File path must be a string"
+                                    }
+                                };
+
+                                let path = std::env::current_dir().into_diagnostic()?.join(s);
+
+                                out.insert(name, Variable::File(path));
+                            }
+                            "env" => {
+                                let Some(s) = entry.value().as_string() else {
+                                    bail! {
+                                        labels = vec![entry.span().with_label("here")],
+                                        "Environment variable must be a string"
+                                    }
+                                };
+
+                                out.insert(
+                                    name,
+                                    Variable::Env {
+                                        var: s.into(),
+                                        span: entry.span(),
+                                    },
+                                );
+                            }
+                            _ => {
                                 bail! {
                                     labels = vec![entry.span().with_label("here")],
-                                    "File path must be a string"
+                                    "Expected variables to be in the format of <name> <value>."
                                 }
-                            };
-
-                            let path = std::env::current_dir().into_diagnostic()?.join(s);
-
-                            out.insert(name, Variable::File(path));
-                        } else if ename.value() == "env" {
-                            let Some(s) = entry.value().as_string() else {
-                                bail! {
-                                    labels = vec![entry.span().with_label("here")],
-                                    "Environment variable must be a string"
-                                }
-                            };
-
-                            out.insert(
-                                name,
-                                Variable::Env {
-                                    var: s.into(),
-                                    span: entry.span(),
-                                },
-                            );
-                        } else {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Expected variables to be in the format of <name> <value>."
                             }
                         }
                     } else {
