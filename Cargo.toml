@@ -15,3 +15,4 @@ miette = { version = "7.6.0", features = ["fancy"] }
 serde_json = "1.0.149"
 anstream = "1.0.0"
 owo-colors = "4.3.0"
+humantime = "2.3.0"

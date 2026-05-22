@@ -1,5 +1,6 @@
-use std::{borrow::Cow, collections::HashMap, path::PathBuf, str::FromStr};
+use std::{borrow::Cow, collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 
+use humantime::parse_duration;
 use kdl::{KdlDocument, KdlNode};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
@@ -168,17 +169,160 @@ impl<'a> Query<'a> {
 }
 
 #[derive(Debug, Clone)]
-enum Variable {
+enum VariableValue {
     Str(String),
     File(PathBuf),
     Env { var: String, span: SourceSpan },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Persist {
+    Never,
+    Duration(Duration),
+    Forever,
+}
+
+#[derive(Debug, Clone)]
+pub struct Variable {
+    persist: Persist,
+    default_value: VariableValue,
+}
+
 impl Variable {
+    fn parse(node: &KdlNode) -> miette::Result<(String, Self)> {
+        let name = node.name().value().to_string();
+
+        let mut persist = Persist::Never;
+        let mut value: Option<VariableValue> = None;
+        for entry in node.entries() {
+            if let Some(ename) = entry.name() {
+                match ename.value() {
+                    "file" => {
+                        if value.is_some() {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Default variable value may only be set once"
+                            }
+                        }
+
+                        let Some(s) = entry.value().as_string() else {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "File path must be a string"
+                            }
+                        };
+
+                        let path = std::env::current_dir().into_diagnostic()?.join(s);
+
+                        value = Some(VariableValue::File(path));
+                    }
+                    "env" => {
+                        if value.is_some() {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Default variable value may only be set once"
+                            }
+                        }
+
+                        let Some(s) = entry.value().as_string() else {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Environment variable must be a string"
+                            }
+                        };
+
+                        value = Some(VariableValue::Env {
+                            var: s.into(),
+                            span: entry.span(),
+                        });
+                    }
+                    "persist" => {
+                        if persist != Persist::Never {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Persist may only be set once"
+                            }
+                        }
+
+                        if let Some(b) = entry.value().as_bool() {
+                            if !b {
+                                bail! {
+                                    labels = vec![entry.span().with_label("here")],
+                                    "Persist must either be #true or a duration"
+                                }
+                            }
+                            persist = Persist::Forever;
+                        } else if let Some(s) = entry.value().as_string() {
+                            match humantime::parse_duration(s) {
+                                Ok(d) => {
+                                    persist = Persist::Duration(d);
+                                }
+                                Err(e) => {
+                                    bail! {
+                                        labels = vec![entry.span().with_label("here")],
+                                        "Duration Parse Error: {}", e
+                                    }
+                                }
+                            }
+                        } else {
+                            bail! {
+                                labels = vec![entry.span().with_label("here")],
+                                "Persist must either be #true or a duration like \"1 hour\""
+                            }
+                        }
+                    }
+                    _ => {
+                        bail! {
+                            labels = vec![entry.span().with_label("here")],
+                            "Expected variables to be in the format of <name> <value>."
+                        }
+                    }
+                }
+            } else {
+                if value.is_some() {
+                    bail! {
+                        labels = vec![entry.span().with_label("here")],
+                        "Default variable value may only be set once"
+                    }
+                }
+
+                let s = entry.value();
+                let s = if let Some(s) = s.as_string() {
+                    s.to_string()
+                } else if let Some(v) = s.as_integer() {
+                    v.to_string()
+                } else if let Some(v) = s.as_float() {
+                    v.to_string()
+                } else {
+                    bail! {
+                        labels = vec![entry.span().with_label("here")],
+                        "Expected variable value to be a string or number."
+                    }
+                };
+                value = Some(VariableValue::Str(s));
+            }
+        }
+
+        let Some(value) = value else {
+            bail! {
+                labels = vec![node.span().with_label("here")],
+                "Expected variable value to be one of `<value>`, `file=<path>`, or `env=<env-var>`."
+            }
+        };
+
+        Ok((
+            name,
+            Variable {
+                persist,
+                default_value: value,
+            },
+        ))
+    }
+
     fn get_string(&self) -> miette::Result<Cow<'_, str>> {
-        match self {
-            Variable::Str(s) => Ok(Cow::Borrowed(s)),
-            Variable::File(path) => std::fs::read_to_string(path)
+        match &self.default_value {
+            VariableValue::Str(s) => Ok(Cow::Borrowed(s)),
+            VariableValue::File(path) => std::fs::read_to_string(path)
                 .map(|mut s| {
                     // effectively just `trim`, but it does so without needing to re-allocate
                     while s.ends_with(char::is_whitespace) {
@@ -191,7 +335,7 @@ impl Variable {
                 })
                 .into_diagnostic()
                 .with_context(|| format!("Reading variable from path {:?}", path)),
-            Variable::Env { var, span } => match std::env::var(var) {
+            VariableValue::Env { var, span } => match std::env::var(var) {
                 Ok(v) => Ok(Cow::Owned(v)),
                 Err(e) => {
                     bail! {
@@ -227,68 +371,8 @@ impl Config {
         out.reserve(vars.children().map(|d| d.nodes().len()).unwrap_or(0));
 
         for n in vars.iter_children() {
-            let name = n.name().value().to_string();
-            match n.entries() {
-                [entry] => {
-                    if let Some(ename) = entry.name() {
-                        match ename.value() {
-                            "file" => {
-                                let Some(s) = entry.value().as_string() else {
-                                    bail! {
-                                        labels = vec![entry.span().with_label("here")],
-                                        "File path must be a string"
-                                    }
-                                };
-
-                                let path = std::env::current_dir().into_diagnostic()?.join(s);
-
-                                out.insert(name, Variable::File(path));
-                            }
-                            "env" => {
-                                let Some(s) = entry.value().as_string() else {
-                                    bail! {
-                                        labels = vec![entry.span().with_label("here")],
-                                        "Environment variable must be a string"
-                                    }
-                                };
-
-                                out.insert(
-                                    name,
-                                    Variable::Env {
-                                        var: s.into(),
-                                        span: entry.span(),
-                                    },
-                                );
-                            }
-                            _ => {
-                                bail! {
-                                    labels = vec![entry.span().with_label("here")],
-                                    "Expected variables to be in the format of <name> <value>."
-                                }
-                            }
-                        }
-                    } else {
-                        let value = entry.value();
-                        let value = if let Some(s) = value.as_string() {
-                            s.to_string()
-                        } else if let Some(v) = value.as_integer() {
-                            v.to_string()
-                        } else if let Some(v) = value.as_float() {
-                            v.to_string()
-                        } else {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Expected variable value to be a string or number."
-                            }
-                        };
-                        out.insert(name, Variable::Str(value));
-                    }
-                }
-                _ => bail! {
-                    labels = vec![n.span().with_label("here")],
-                    "Expected variable value to be one of `<value>`, `file=<path>`, or `env=<env-var>`."
-                },
-            }
+            let (name, var) = Variable::parse(n)?;
+            out.insert(name, var);
         }
 
         Ok(out)

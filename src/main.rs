@@ -64,6 +64,8 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
 
     let config = Config::parse(config_str.parse()?)?;
 
+    dbg!(&config);
+
     let client = Client::new();
 
     let query = config
