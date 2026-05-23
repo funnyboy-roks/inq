@@ -1,25 +1,65 @@
-use std::{borrow::Cow, collections::HashSet};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+};
 
-use miette::{LabeledSpan, SourceSpan, bail};
+use miette::{LabeledSpan, SourceSpan};
+use rhai::{Dynamic, Engine, EvalAltResult};
 
-#[derive(Debug, Clone, Copy)]
-pub struct Interpolated<'a>(&'a str);
+#[derive(Debug, Clone)]
+pub struct Interpolated<'a>(Cow<'a, str>);
 
-impl<'a> From<&'a str> for Interpolated<'a> {
-    fn from(value: &'a str) -> Self {
+impl<'a> From<Cow<'a, str>> for Interpolated<'a> {
+    fn from(value: Cow<'a, str>) -> Self {
         Self(value)
     }
 }
 
+impl From<String> for Interpolated<'static> {
+    fn from(value: String) -> Self {
+        Self(Cow::Owned(value))
+    }
+}
+
+impl<'a> From<&'a str> for Interpolated<'a> {
+    fn from(value: &'a str) -> Self {
+        Self(Cow::Borrowed(value))
+    }
+}
+
+enum InterpolateInnerError {
+    Miette(miette::Report),
+    Rhai(Box<EvalAltResult>),
+}
+
+impl From<miette::Report> for InterpolateInnerError {
+    fn from(value: miette::Report) -> Self {
+        Self::Miette(value)
+    }
+}
+
+impl From<Box<EvalAltResult>> for InterpolateInnerError {
+    fn from(value: Box<EvalAltResult>) -> Self {
+        Self::Rhai(value)
+    }
+}
+
+impl From<EvalAltResult> for InterpolateInnerError {
+    fn from(value: EvalAltResult) -> Self {
+        Self::Rhai(Box::new(value))
+    }
+}
+
 impl Interpolated<'_> {
-    fn interpolate_inner<'a, F>(
+    fn to_owned(&self) -> Interpolated<'static> {
+        Interpolated(Cow::Owned(self.0.clone().into_owned()))
+    }
+
+    fn interpolate_inner<'a>(
         s: Cow<'a, str>,
-        get: &mut F,
-        expanding: &mut HashSet<String>,
-    ) -> miette::Result<Cow<'a, str>>
-    where
-        F: FnMut(&str) -> miette::Result<Option<String>>,
-    {
+        vars: &HashMap<String, Interpolated<'a>>,
+        expanding: &HashSet<String>,
+    ) -> Result<Cow<'a, str>, InterpolateInnerError> {
         if !s.contains("${") {
             return Ok(s);
         }
@@ -27,26 +67,92 @@ impl Interpolated<'_> {
         let mut out = String::new();
         let mut rest = &*s;
         while !rest.is_empty() {
+            if !rest.contains("${") {
+                out.push_str(rest);
+                return Ok(Cow::Owned(out));
+            }
+
             // ${VAR_NAME}
             if let Some(pos) = rest.find("${") {
                 let pre = &rest[..pos];
                 rest = &rest[pos + "${".len()..];
-                // VAR_NAME}
+
+                let mut depth = 1;
+
                 out.push_str(pre);
-                if let Some(pos) = rest.find("}") {
-                    let var_name = &rest[..pos];
-                    if expanding.contains(var_name) {
-                        bail!("Recursive expansion detected in {:?}", s);
+                let expr = rest;
+                while depth > 0 {
+                    let next_close = rest.find("}");
+                    let next_open = rest.find("{");
+                    dbg!((depth, rest));
+
+                    match dbg!((next_close, next_open)) {
+                        (Some(c), Some(o)) => {
+                            if c < o {
+                                // close before open
+                                rest = &rest[c + 1..];
+                                depth -= 1;
+                            } else if o < c {
+                                // open before close
+                                rest = &rest[o + 1..];
+                                depth += 1;
+                            } else {
+                                unreachable!("Different patterns can not be in the same position.");
+                            }
+                        }
+                        (Some(c), None) => {
+                            rest = &rest[c + 1..];
+                            depth -= 1;
+                        }
+                        (None, _) => {
+                            return Err(miette::miette!("Unclosed ${{ in {:?}", s).into());
+                        }
                     }
-                    rest = &rest[pos + 1..];
-                    let ovar = get(var_name)?.ok_or_else(|| {
-                        miette::miette!("Undefined variable '{}'", var_name.to_string())
-                    })?;
-                    expanding.insert(var_name.to_string());
-                    let var = Self::interpolate_inner(Cow::Borrowed(&ovar), get, expanding)?;
-                    expanding.remove(var_name);
-                    out.push_str(&var);
                 }
+                let expr = expr
+                    .strip_suffix(rest)
+                    .expect("rest is a substring of expr");
+                let expr = &expr[..expr.len() - 1]; // strip trailing }
+                dbg!(expr);
+
+                if expanding.contains(expr) {
+                    return Err(miette::miette!("Recursive expansion detected in {:?}", s).into());
+                }
+
+                let mut engine = Engine::new();
+                let vars: HashMap<String, Interpolated<'static>> = vars
+                    .iter()
+                    .map(|(name, val)| (name.clone(), val.to_owned()))
+                    .collect::<HashMap<_, _>>();
+
+                let expanding = expanding.clone();
+                #[allow(deprecated, reason = "Volatile, but we need it")]
+                engine.on_var(move |name, _index, _ctx| {
+                    let mut expanding = expanding.clone();
+                    if let Some(var) = vars.get(name) {
+                        expanding.insert(name.to_string());
+                        let var = Self::interpolate_inner(var.0.clone(), &vars, &expanding);
+                        let var = match var {
+                            Ok(var) => var,
+                            Err(InterpolateInnerError::Miette(e)) => {
+                                return Err(Box::new(EvalAltResult::ErrorSystem(
+                                    "miette error".to_string(),
+                                    Box::new(std::io::Error::other(e)),
+                                )));
+                            }
+                            Err(InterpolateInnerError::Rhai(e)) => return Err(e),
+                        };
+                        expanding.remove(name);
+                        Ok(Some(var.into_owned().into()))
+                    } else {
+                        Ok(None)
+                    }
+                });
+
+                let var: Dynamic = engine.eval_expression(expr)?;
+                let var = var.to_string();
+
+                out.push_str(&var);
             } else {
                 out.push_str(rest);
                 break;
@@ -57,11 +163,17 @@ impl Interpolated<'_> {
 }
 
 impl<'a> Interpolated<'a> {
-    pub(crate) fn interpolate<F>(self, mut get: F) -> miette::Result<Cow<'a, str>>
-    where
-        F: FnMut(&str) -> miette::Result<Option<String>>,
-    {
-        Self::interpolate_inner(Cow::Borrowed(self.0), &mut get, &mut HashSet::new())
+    pub(crate) fn interpolate(
+        &self,
+        vars: &HashMap<String, Interpolated<'a>>,
+    ) -> miette::Result<Cow<'a, str>> {
+        match Self::interpolate_inner(self.0.clone(), vars, &HashSet::new()) {
+            Ok(v) => Ok(v),
+            Err(InterpolateInnerError::Miette(r)) => Err(r),
+            Err(InterpolateInnerError::Rhai(e)) => {
+                Err(miette::miette!("Rhai error evaluating {:?}: {}", self.0, e))
+            }
+        }
     }
 }
 
@@ -78,12 +190,20 @@ impl WithLabel for SourceSpan {
 #[cfg(test)]
 mod test {
     use crate::util::Interpolated;
-    use std::borrow::Cow;
+    use std::{borrow::Cow, collections::HashMap};
+
+    macro_rules! var_map {
+        {$($name: literal => $value: literal),*$(,)?} => {
+             HashMap::from_iter([
+                 $(($name.into(), $value.into())),*
+             ])
+        };
+    }
 
     #[test]
     fn no_vars() {
         let s = Interpolated::from("hello world")
-            .interpolate(|_| Ok(None))
+            .interpolate(&var_map! {})
             .unwrap();
         assert!(matches!(s, Cow::Borrowed(_)));
         assert_eq!(s, "hello world")
@@ -92,7 +212,9 @@ mod test {
     #[test]
     fn one_variable() {
         let s = Interpolated::from("hello ${LOC}")
-            .interpolate(|n| Ok((n == "LOC").then_some("world".to_string())))
+            .interpolate(&var_map! {
+                "LOC" => "world",
+            })
             .unwrap();
         assert_eq!(s, "hello world")
     }
@@ -100,12 +222,9 @@ mod test {
     #[test]
     fn two_variable() {
         let s = Interpolated::from("hello ${FOO} ${BAR} baz")
-            .interpolate(|n| {
-                Ok(match n {
-                    "FOO" => Some("foo".into()),
-                    "BAR" => Some("bar".into()),
-                    _ => None,
-                })
+            .interpolate(&var_map! {
+                "FOO" => "foo",
+                "BAR" => "bar",
             })
             .unwrap();
         assert_eq!(s, "hello foo bar baz")
@@ -114,11 +233,8 @@ mod test {
     #[test]
     fn repeat() {
         let s = Interpolated::from("hello ${FOO} ${FOO} baz")
-            .interpolate(|n| {
-                Ok(match n {
-                    "FOO" => Some("foo".into()),
-                    _ => None,
-                })
+            .interpolate(&var_map! {
+                "FOO" => "foo",
             })
             .unwrap();
         assert_eq!(s, "hello foo foo baz")
@@ -127,12 +243,9 @@ mod test {
     #[test]
     fn recursive() {
         let s = Interpolated::from("http://${HOST}/login")
-            .interpolate(|n| {
-                Ok(match n {
-                    "HOST" => Some("localhost:${PORT}".into()),
-                    "PORT" => Some("6969".into()),
-                    _ => None,
-                })
+            .interpolate(&var_map! {
+                "HOST" => "localhost:${PORT}",
+                "PORT" => "6969",
             })
             .unwrap();
         assert_eq!(s, "http://localhost:6969/login")
@@ -140,23 +253,17 @@ mod test {
 
     #[test]
     fn recursive_inf() {
-        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| {
-            Ok(match n {
-                "HOST" => Some("localhost:${PORT}".into()),
-                "PORT" => Some("${HOST}".into()),
-                _ => None,
-            })
+        let s = Interpolated::from("http://${HOST}/login").interpolate(&var_map! {
+            "HOST" => "localhost:${PORT}",
+            "PORT" => "${HOST}",
         });
         assert!(s.is_err())
     }
 
     #[test]
     fn recursive_self() {
-        let s = Interpolated::from("http://${HOST}/login").interpolate(|n| {
-            Ok(match n {
-                "HOST" => Some("localhost:${HOST}".into()),
-                _ => None,
-            })
+        let s = Interpolated::from("http://${HOST}/login").interpolate(&var_map! {
+            "HOST" => "localhost:${HOST}",
         });
         assert!(s.is_err())
     }

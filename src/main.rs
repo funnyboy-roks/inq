@@ -1,6 +1,7 @@
-use std::{borrow::Cow, fmt::Display, io::Write, time::Instant};
+use std::{fmt::Display, io::Write, time::Instant};
 
 use anstream::{eprintln, println};
+use chrono::Utc;
 use clap::Parser;
 use miette::{Context, IntoDiagnostic};
 use reqwest::{blocking::Client, header};
@@ -9,10 +10,12 @@ use serde_json::Value as JsonValue;
 use crate::{
     cli::{Cli, SubCmd},
     config::Config,
+    state::State,
 };
 
 mod cli;
 mod config;
+mod state;
 mod util;
 
 fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std::io::Result<()> {
@@ -63,8 +66,7 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let SubCmd::Query(ref query_cmd) = cli.subcmd;
 
     let config = Config::parse(config_str.parse()?)?;
-
-    dbg!(&config);
+    let mut state = State::load(&cli.config)?;
 
     let client = Client::new();
 
@@ -72,13 +74,23 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
         .get_query(&query_cmd.query)?
         .context("Query not defined")?;
 
-    let (req, req_body) = query.to_request(&client, |n| {
-        if let Some(v) = query_cmd.get_variable(n) {
-            Ok(Some(String::from(v)))
-        } else {
-            Ok(config.get_variable(n)?.map(Cow::into_owned))
+    let vars = config.load_variables(&cli.subcmd, &state)?;
+
+    for (name, val) in &vars {
+        if let Some(var) = config.get_variable(name)
+            && var.persist.persists()
+        {
+            state.variables.insert(
+                name.to_string(),
+                state::PersistedVariable {
+                    value: val.interpolate(&vars)?.into_owned(),
+                    expires_at: var.persist.duration().map(|d| Utc::now() + d),
+                },
+            );
         }
-    })?;
+    }
+
+    let (req, req_body) = query.to_request(&client, &vars)?;
 
     {
         use owo_colors::OwoColorize as _;
@@ -183,6 +195,8 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
             }
         }
     }
+
+    state.save(&cli.config)?;
 
     Ok(())
 }

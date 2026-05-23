@@ -47,6 +47,14 @@ pub enum SubCmd {
     Query(QueryCommand),
 }
 
+impl SubCmd {
+    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
+        match self {
+            SubCmd::Query(query_command) => query_command.get_variable(name),
+        }
+    }
+}
+
 #[derive(Debug, Parser)]
 pub struct Cli {
     #[clap(short, long, default_value = "inq.kdl")]

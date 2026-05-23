@@ -1,6 +1,6 @@
 use std::{borrow::Cow, collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
 
-use humantime::parse_duration;
+use chrono::{DateTime, Utc};
 use kdl::{KdlDocument, KdlNode};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
@@ -9,7 +9,11 @@ use reqwest::{
 };
 use serde_json::Value as JsonValue;
 
-use crate::util::{Interpolated, WithLabel};
+use crate::{
+    cli::SubCmd,
+    state::State,
+    util::{Interpolated, WithLabel},
+};
 
 #[derive(Debug, Clone)]
 pub enum Body<'a> {
@@ -120,30 +124,24 @@ impl<'a> Query<'a> {
         }))
     }
 
-    pub(crate) fn to_request<F>(
+    pub(crate) fn to_request(
         &self,
         client: &Client,
-        mut variable_getter: F,
-    ) -> miette::Result<(Request, Option<PopulatedBody<'a>>)>
-    where
-        F: FnMut(&str) -> miette::Result<Option<String>>,
-    {
-        let url = self
-            .url
-            .interpolate(&mut variable_getter)
-            .context("Interpolating URL")?;
+        vars: &Variables<'a>,
+    ) -> miette::Result<(Request, Option<PopulatedBody<'a>>)> {
+        let url = self.url.interpolate(vars).context("Interpolating URL")?;
 
         let mut builder = client.request(self.method.clone(), &*url);
 
         let populated_body = if let Some(body) = &self.body {
             match body {
                 Body::Text(t) => {
-                    let s = t.interpolate(&mut variable_getter)?;
+                    let s = t.interpolate(vars)?;
                     builder = builder.body(s.clone().into_owned());
                     Some(PopulatedBody::Text(s))
                 }
                 Body::Json { json, span } => {
-                    let interpolated = &json.interpolate(&mut variable_getter)?;
+                    let interpolated = &json.interpolate(vars)?;
                     let json = serde_json::Value::from_str(interpolated).map_err(|e| {
                         miette::miette! {
                             labels = vec![span.with_label("in this JSON")],
@@ -160,8 +158,8 @@ impl<'a> Query<'a> {
             None
         };
 
-        for (&k, &v) in &self.headers {
-            builder = builder.header(k, &*v.interpolate(&mut variable_getter)?);
+        for (&k, v) in &self.headers {
+            builder = builder.header(k, &*v.interpolate(vars)?);
         }
 
         Ok((builder.build().into_diagnostic()?, populated_body))
@@ -169,23 +167,39 @@ impl<'a> Query<'a> {
 }
 
 #[derive(Debug, Clone)]
-enum VariableValue {
+pub enum VariableValue {
     Str(String),
     File(PathBuf),
     Env { var: String, span: SourceSpan },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Persist {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Persist {
     Never,
     Duration(Duration),
     Forever,
 }
 
+impl Persist {
+    pub fn persists(self) -> bool {
+        match self {
+            Persist::Never => false,
+            Persist::Duration(_) | Persist::Forever => true,
+        }
+    }
+
+    pub fn duration(self) -> Option<Duration> {
+        match self {
+            Persist::Never | Persist::Forever => None,
+            Persist::Duration(d) => Some(d),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Variable {
-    persist: Persist,
-    default_value: VariableValue,
+    pub persist: Persist,
+    pub default_value: VariableValue,
 }
 
 impl Variable {
@@ -346,7 +360,23 @@ impl Variable {
             },
         }
     }
+
+    fn load<'a>(&'a self, name: &str, state: &State) -> miette::Result<Interpolated<'a>> {
+        // if this variable should be persisted
+        if self.persist.persists()
+            // and it has been persisted
+            && let Some(persisted) = state.variables.get(name)
+            // and it isn't expired
+            && persisted.expires_at.is_none_or(|e| e > Utc::now())
+        {
+            return Ok(persisted.value.clone().into());
+        }
+
+        self.get_string().map(Into::into)
+    }
 }
+
+pub type Variables<'a> = HashMap<String, Interpolated<'a>>;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -378,11 +408,25 @@ impl Config {
         Ok(out)
     }
 
-    pub fn get_variable<'a>(&'a self, name: &str) -> miette::Result<Option<Cow<'a, str>>> {
-        self.variables
-            .get(name)
-            .map(Variable::get_string)
-            .transpose()
+    pub fn load_variables<'a>(
+        &'a self,
+        cli: &'a SubCmd,
+        state: &State,
+    ) -> miette::Result<Variables<'a>> {
+        let mut out = HashMap::with_capacity(self.variables.len());
+        for (name, var) in &self.variables {
+            let val = if let Some(var) = cli.get_variable(name) {
+                Interpolated::from(var)
+            } else {
+                var.load(name, state)?
+            };
+            out.insert(name.clone(), val);
+        }
+        Ok(out)
+    }
+
+    pub fn get_variable(&self, name: &'_ str) -> Option<&Variable> {
+        self.variables.get(name)
     }
 
     pub fn get_query<'a>(&'a self, name: &str) -> miette::Result<Option<Query<'a>>> {
