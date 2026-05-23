@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    io::{BufWriter, ErrorKind, Write},
+    io::BufWriter,
     path::{Path, PathBuf},
 };
 

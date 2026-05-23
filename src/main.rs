@@ -1,14 +1,14 @@
-use std::{fmt::Display, io::Write, time::Instant};
+use std::{collections::BTreeMap, fmt::Display, io::Write, time::Instant};
 
 use anstream::{eprintln, println};
 use chrono::Utc;
 use clap::Parser;
-use miette::{Context, IntoDiagnostic};
+use miette::{Context, IntoDiagnostic, bail};
 use reqwest::{blocking::Client, header};
 use serde_json::Value as JsonValue;
 
 use crate::{
-    cli::{Cli, SubCmd},
+    cli::{Cli, QueryCommand, SubCmd, VariableCommand},
     config::Config,
     state::State,
 };
@@ -62,19 +62,19 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
     }
 }
 
-fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
-    let SubCmd::Query(ref query_cmd) = cli.subcmd;
-
-    let config = Config::parse(config_str.parse()?)?;
-    let mut state = State::load(&cli.config)?;
-
+fn run_query(
+    cli: &Cli,
+    query_cmd: &QueryCommand,
+    config: Config,
+    state: &mut State,
+) -> miette::Result<()> {
     let client = Client::new();
 
     let query = config
         .get_query(&query_cmd.query)?
         .context("Query not defined")?;
 
-    let vars = config.load_variables(&cli.subcmd, &state)?;
+    let vars = config.load_variables(&cli.subcmd, state)?;
 
     for (name, val) in &vars {
         if let Some(var) = config.get_variable(name)
@@ -195,6 +195,109 @@ fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+fn run_variable(
+    _cli: &Cli,
+    var_cmd: &VariableCommand,
+    _config: Config,
+    state: &mut State,
+) -> miette::Result<()> {
+    match &var_cmd.command {
+        cli::VariableSubCmd::Set {
+            variable,
+            value,
+            expires,
+        } => match (value, expires) {
+            (Some(value), &expires) => {
+                state.variables.insert(
+                    variable.clone(),
+                    state::PersistedVariable {
+                        value: value.clone(),
+                        expires_at: expires.map(|e| Utc::now() + *e),
+                    },
+                );
+            }
+            (None, &Some(expires)) => {
+                let Some(var) = state.variables.get_mut(&**variable) else {
+                    bail!("Variable not set '{}'", variable);
+                };
+
+                var.expires_at = Some(Utc::now() + *expires);
+            }
+            (None, None) => {
+                bail!("Variable value and/or expires must be set");
+            }
+        },
+        cli::VariableSubCmd::Get { variable } => match state.variables.get(variable) {
+            Some(v) => {
+                {
+                    use owo_colors::OwoColorize as _;
+                    eprint!("{}   ", "Value:".blue());
+                    let _ = std::io::stderr().flush(); // ensure the Value: is printed
+
+                    println!("{}", v.value); // print to stdout so it can be piped
+
+                    if let Some(expires_at) = v.expires_at {
+                        eprintln!(
+                            "{} {} {}",
+                            "Expires:".blue(),
+                            expires_at
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M:%S"),
+                            format!("({})", chrono_humanize::HumanTime::from(expires_at)).yellow(),
+                        );
+                    } else {
+                        eprintln!("{} Never", "Expires:".blue());
+                    }
+                }
+            }
+            None => {
+                use owo_colors::OwoColorize as _;
+                eprintln!("{}", "Variable not defined".red());
+            }
+        },
+        cli::VariableSubCmd::List => {
+            // put into btreemap to have stable order
+            let variables = BTreeMap::from_iter(&state.variables);
+            for (variable, v) in variables {
+                {
+                    use owo_colors::OwoColorize as _;
+
+                    println!("{}", variable.green());
+
+                    println!("  {}   {}", "Value:".blue(), v.value);
+
+                    if let Some(expires_at) = v.expires_at {
+                        println!(
+                            "  {} {} {}",
+                            "Expires:".blue(),
+                            expires_at
+                                .with_timezone(&chrono::Local)
+                                .format("%Y-%m-%d %H:%M:%S"),
+                            format!("({})", chrono_humanize::HumanTime::from(expires_at)).yellow(),
+                        );
+                    } else {
+                        println!("  {} Never", "Expires:".blue());
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
+    let config = Config::parse(config_str.parse()?)?;
+    let mut state = State::load(&cli.config)?;
+
+    match &cli.subcmd {
+        SubCmd::Query(s) => run_query(&cli, s, config, &mut state)?,
+        SubCmd::Variable(s) => run_variable(&cli, s, config, &mut state)?,
+    };
 
     state.save(&cli.config)?;
 

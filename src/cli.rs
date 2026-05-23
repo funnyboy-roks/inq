@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use humantime::Duration;
 
 #[derive(Debug, Clone)]
 pub struct Variable {
@@ -41,16 +42,45 @@ impl QueryCommand {
 }
 
 #[derive(Debug, Subcommand)]
+pub enum VariableSubCmd {
+    /// Set a specific variable
+    ///
+    /// At least one of `VALUE` or `--expires` must be set.  If
+    /// `--expires` is set without a value, then the expiration date is updated without changing the
+    /// value and vice versa.
+    Set {
+        #[clap(short, long)]
+        expires: Option<Duration>,
+        variable: String,
+        value: Option<String>,
+    },
+    /// Get the value of a persisted variable
+    Get { variable: String },
+    /// List all persisted variables
+    List,
+}
+
+#[derive(Debug, Parser)]
+pub struct VariableCommand {
+    #[clap(subcommand)]
+    pub command: VariableSubCmd,
+}
+
+#[derive(Debug, Subcommand)]
 pub enum SubCmd {
     /// Execute a query
     #[clap(alias = "q")]
     Query(QueryCommand),
+    /// Manipulate persisted variables
+    #[clap(alias = "var")]
+    Variable(VariableCommand),
 }
 
 impl SubCmd {
     pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
         match self {
             SubCmd::Query(query_command) => query_command.get_variable(name),
+            SubCmd::Variable(_) => None,
         }
     }
 }
