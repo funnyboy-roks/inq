@@ -22,15 +22,23 @@ Variables are the way to have central values and customise behaviour at
 runtime.  All variables may be overridden with `--var KEY=VALUE` on the
 commandline.
 
-Most strings support variable interpolation, using the syntax of
-`${NAME}`. Variables may refer to other variables, as shown in the
-example below.
+Most strings support interpolation using [rhai] with the syntax
+`${expression}`.  Each variable in the `variables` block is defined in
+the scope and may be used as a value in the expression.  (NOTE: all
+variables are strings and my be converted into other values using the
+rhai functions).
 
 Variables can be specified in three different ways:
 
 - `foo <value>` - Use a specific value
 - `env=<variable>` - Always read the value from an environment variable
 - `file=<file>` - Use the contents of a file as the variable (whitespace trimmed)
+
+Variables may additionally be marked as `persist`.  These variables
+will be saved to a file and hold their values between queries.
+
+To mark a variable to persist, add `persist=#true` or `persist="<time>"`
+where `<time>` is a duration, like `1 hour`.
 
 These go in the `variables` section:
 
@@ -40,7 +48,19 @@ variables {
     BASE_URL "http://localhost:${PORT}"
     USER env="USERNAME"
     PASSWORD file="password.txt"
+    COOKIE "" persist=#true
 }
+```
+
+#### Persistent Variables
+
+Variables that have been marked as `persist` can be updated using the
+`inq variable` subcommand:
+
+```
+inq var[iable] set <variable> [value] [--expires=<time>]
+inq var[iable] get <variable>
+inq var[iable] list
 ```
 
 ### Queries
@@ -63,6 +83,8 @@ The configuration may contain the following items:
 - `body` - Set the body of the request using either `text=<string>` or
   `json=<string>`.  If `json` is used, the `content-type` header is
   automatically set to `application/json`.
+- `post-script` - A [rhai] script to run after the request is complete.
+  This can be used for updating variables
 
 
 ## Example
@@ -73,6 +95,7 @@ variables {
     BASE_URL "http://localhost:${PORT}"
     USER env="USERNAME"
     PASSWORD file="password.txt"
+    COOKIE "" persist=#true
 }
 
 queries {
@@ -86,6 +109,11 @@ queries {
             "password": "${PASSWORD"}
         }
         """
+        post-script #"""
+        let cookie = parse_cookie(response.headers["set-cookie"]);
+        vars.COOKIE.value = cookie.value;
+        vars.COOKIE.expires_at = cookie.expires;
+        """#
     }
 }
 ```
@@ -97,3 +125,5 @@ inq query login
 # override variables with
 inq query login --var USER=someone-else
 ```
+
+[rhai]: https://rhai.rs/book/language/comments.html
