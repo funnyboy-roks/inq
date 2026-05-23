@@ -2,8 +2,9 @@ variables {
     PORT 3000
     BASE_URL "http://localhost:${PORT}"
     USER "john" persist=#true
-    PASSWORD file="password" persist="1h"
+    PASSWORD file="password" persist="5m"
     CODE env="CODE"
+    COOKIE "" persist=#true // persistence time set in post-script
 }
 
 queries {
@@ -16,6 +17,11 @@ queries {
             "username": "${USER}",
             "password": "${PASSWORD}"
         }
+        """#
+        post-script #"""
+        let cookie = parse_cookie(response.headers["set-cookie"]);
+        vars.COOKIE.value = cookie.value;
+        vars.COOKIE.expires_at = cookie.expires;
         """#
     }
     status GET "${BASE_URL}/status/${CODE}"

@@ -6,9 +6,10 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use miette::Context;
+use rhai::{CustomType, Dynamic, EvalAltResult, Position, TypeBuilder};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, CustomType)]
 pub struct PersistedVariable {
     pub value: String,
     pub expires_at: Option<DateTime<Utc>>,

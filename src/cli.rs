@@ -30,9 +30,9 @@ pub struct QueryCommand {
     /// Print the raw body of the response
     #[clap(short, long)]
     pub raw: bool,
-    pub query: String,
     #[clap(short, long, value_parser = Variable::parse)]
     var: Vec<Variable>,
+    pub query: String,
 }
 
 impl QueryCommand {

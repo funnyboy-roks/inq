@@ -84,9 +84,8 @@ impl Interpolated<'_> {
                 while depth > 0 {
                     let next_close = rest.find("}");
                     let next_open = rest.find("{");
-                    dbg!((depth, rest));
 
-                    match dbg!((next_close, next_open)) {
+                    match (next_close, next_open) {
                         (Some(c), Some(o)) => {
                             if c < o {
                                 // close before open
@@ -113,7 +112,6 @@ impl Interpolated<'_> {
                     .strip_suffix(rest)
                     .expect("rest is a substring of expr");
                 let expr = &expr[..expr.len() - 1]; // strip trailing }
-                dbg!(expr);
 
                 if expanding.contains(expr) {
                     return Err(miette::miette!("Recursive expansion detected in {:?}", s).into());

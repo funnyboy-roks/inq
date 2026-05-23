@@ -1,20 +1,30 @@
-use std::{collections::BTreeMap, fmt::Display, io::Write, time::Instant};
+use std::{
+    cell::RefCell, collections::BTreeMap, fmt::Display, io::Write, ops::Deref, rc::Rc,
+    str::FromStr, time::Instant,
+};
 
 use anstream::{eprintln, println};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clap::Parser;
+use cookie::Cookie;
 use miette::{Context, IntoDiagnostic, bail};
-use reqwest::{blocking::Client, header};
+use reqwest::{
+    blocking::Client,
+    header::{HeaderMap, HeaderValue},
+};
+use rhai::{Engine, EvalAltResult, ImmutableString, Position, Scope};
 use serde_json::Value as JsonValue;
 
 use crate::{
     cli::{Cli, QueryCommand, SubCmd, VariableCommand},
     config::Config,
-    state::State,
+    script::{ScriptBody, ScriptResponse},
+    state::{PersistedVariable, State},
 };
 
 mod cli;
 mod config;
+mod script;
 mod state;
 mod util;
 
@@ -65,8 +75,8 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
 fn run_query(
     cli: &Cli,
     query_cmd: &QueryCommand,
-    config: Config,
-    state: &mut State,
+    config: Rc<Config>,
+    state: Rc<RefCell<State>>,
 ) -> miette::Result<()> {
     let client = Client::new();
 
@@ -74,11 +84,13 @@ fn run_query(
         .get_query(&query_cmd.query)?
         .context("Query not defined")?;
 
-    let vars = config.load_variables(&cli.subcmd, state)?;
+    let vars = config.load_variables(&cli.subcmd, &state.borrow())?;
 
     for (name, val) in &vars {
+        let mut state = state.borrow_mut();
         if let Some(var) = config.get_variable(name)
             && var.persist.persists()
+            && !state.variables.contains_key(name)
         {
             state.variables.insert(
                 name.to_string(),
@@ -136,7 +148,8 @@ fn run_query(
     }
 
     let start = Instant::now();
-    let mut res = client.execute(req).into_diagnostic()?;
+    let res = client.execute(req).into_diagnostic()?;
+    let res = ScriptResponse::from_response(res, query_cmd.raw)?;
     let elapsed = start.elapsed();
 
     {
@@ -157,43 +170,169 @@ fn run_query(
         } else {
             &status
         };
-        eprintln!(
-            "  {}:   {:?}",
-            "HTTP Version".blue(),
-            res.version().yellow()
-        );
-        eprintln!("  {}:            {}", "URL".blue(), res.url().yellow());
+        eprintln!("  {}:   {:?}", "HTTP Version".blue(), res.version.yellow());
+        eprintln!("  {}:            {}", "URL".blue(), res.url.yellow());
         eprintln!("  {}:       {:?}", "Duration".blue(), elapsed.yellow());
         eprintln!("  {}:    {}", "Status Code".blue(), status);
-        if let Some(remote_addr) = res.remote_addr() {
+        if let Some(remote_addr) = res.remote_addr {
             eprintln!("  {}: {}", "Remote Address".blue(), remote_addr.yellow());
         }
 
         eprintln!("  {}:", "Headers".blue());
-        for (name, value) in res.headers() {
+        for (name, value) in &res.headers {
             match value.to_str() {
                 Ok(s) => eprintln!("    {}: {}", name.yellow(), s),
                 Err(_) => eprintln!("    {}: {:?}", name.yellow(), value),
             }
         }
 
-        if let Some(content_len) = res.content_length()
+        if let Some(content_len) = res.content_length
             && content_len != 0
         {
-            if !query_cmd.raw
-                && let Some(header) = res.headers().get(header::CONTENT_TYPE)
-                && header == "application/json"
-            {
-                eprintln!("{}:", "Response Body (JSON)".cyan());
-                let json: JsonValue = res.json().into_diagnostic()?;
-                pretty_print_json(&mut anstream::stdout().lock(), json, 0).into_diagnostic()?;
-                println!();
-            } else {
-                eprintln!("{}:", "Response Body (Raw)".cyan());
-
-                std::io::copy(&mut res, &mut std::io::stdout().lock()).into_diagnostic()?;
+            match &res.body {
+                ScriptBody::Text(t) => {
+                    eprintln!("{}:", "Response Body (Raw)".cyan());
+                    std::io::stdout()
+                        .write_all(t.as_bytes())
+                        .into_diagnostic()?;
+                }
+                ScriptBody::Json(json) => {
+                    eprintln!("{}:", "Response Body (JSON)".cyan());
+                    pretty_print_json(&mut anstream::stdout().lock(), json.clone(), 0)
+                        .into_diagnostic()?;
+                    println!();
+                }
             }
         }
+    }
+
+    if let Some(post_script) = query.post_script {
+        eprintln!(
+            "{}",
+            owo_colors::OwoColorize::purple(&"Running post-script")
+        );
+
+        let mut engine = Engine::new();
+
+        #[derive(Clone, Copy)]
+        struct Variables;
+
+        engine
+            .build_type::<ScriptResponse>()
+            .register_indexer_get(
+                |headers: &mut HeaderMap<HeaderValue>, key: ImmutableString| {
+                    headers
+                        .get(key.as_str())
+                        .map(|v| v.to_str().unwrap().to_string())
+                        .ok_or_else(|| {
+                            Box::new(EvalAltResult::ErrorIndexNotFound(
+                                key.into(),
+                                Position::NONE,
+                            ))
+                        })
+                },
+            )
+            .register_fn("parse_cookie", |s: ImmutableString| {
+                Cookie::from_str(&s).map_err(|e| {
+                    Box::new(EvalAltResult::ErrorSystem(
+                        e.as_str().to_string(),
+                        Box::new(e),
+                    ))
+                })
+            })
+            .register_fn(
+                "with_expires",
+                |s: ImmutableString, expires_at: Option<DateTime<Utc>>| PersistedVariable {
+                    value: s.into(),
+                    expires_at,
+                },
+            )
+            .register_get("name", |cookie: &mut Cookie| cookie.name().to_string())
+            .register_get("value", |cookie: &mut Cookie| cookie.value().to_string())
+            .register_get("expires", |cookie: &mut Cookie| {
+                cookie
+                    .expires_datetime()
+                    .map(|d| DateTime::from_timestamp(d.unix_timestamp(), 0).unwrap())
+            })
+            .register_set(
+                "value",
+                |persisted: &mut PersistedVariable, value: String| {
+                    persisted.value = value;
+                },
+            )
+            .register_set(
+                "expires_at",
+                |persisted: &mut PersistedVariable, expires_at: Option<DateTime<Utc>>| {
+                    persisted.expires_at = expires_at;
+                },
+            )
+            .on_print(|s| {
+                for l in s.lines() {
+                    println!("{} {}", owo_colors::OwoColorize::blue(&"[post-script]"), l);
+                }
+            })
+            .on_debug(|s, src, pos| {
+                debug_assert!(src.is_none());
+                for l in s.lines() {
+                    print!("{} ", owo_colors::OwoColorize::blue(&"[post-script]"));
+                    if let (Some(line), Some(pos)) = (pos.line(), pos.position()) {
+                        print!(
+                            "{} ",
+                            owo_colors::OwoColorize::cyan(&format!("[{}:{}]", line, pos))
+                        );
+                    }
+                    println!("{}", l);
+                }
+            });
+
+        for name in state.borrow().variables.keys() {
+            let name = Rc::new(name.clone());
+            engine.register_set(name.deref().clone(), {
+                let name = name.clone();
+                let config = config.clone();
+                let state = state.clone();
+                move |_v: &mut Variables, value: ImmutableString| {
+                    state.borrow_mut().variables.insert(
+                        name.deref().into(),
+                        state::PersistedVariable {
+                            value: value.into(),
+                            expires_at: config
+                                .get_variable(&name)
+                                .unwrap()
+                                .persist
+                                .duration()
+                                .map(|d| Utc::now() + d),
+                        },
+                    );
+                }
+            });
+
+            engine.register_set(name.deref().clone(), {
+                let state = state.clone();
+                let name = name.clone();
+                move |_v: &mut Variables, value: PersistedVariable| {
+                    state
+                        .borrow_mut()
+                        .variables
+                        .insert(name.deref().into(), value);
+                }
+            });
+
+            engine.register_get(name.deref().clone(), {
+                let state = state.clone();
+                move |_v: &mut Variables| state.borrow_mut().variables[name.deref()].clone()
+            });
+        }
+
+        let mut scope = Scope::new();
+
+        scope.push("response", res);
+        scope.push("vars", Variables);
+
+        engine
+            .run_ast_with_scope(&mut scope, &post_script)
+            .map_err(|e| miette::miette!("{}", e))
+            .context("Evaluating post-script")?;
     }
 
     Ok(())
@@ -203,7 +342,7 @@ fn run_variable(
     _cli: &Cli,
     var_cmd: &VariableCommand,
     _config: Config,
-    state: &mut State,
+    state: Rc<RefCell<State>>,
 ) -> miette::Result<()> {
     match &var_cmd.command {
         cli::VariableSubCmd::Set {
@@ -212,7 +351,7 @@ fn run_variable(
             expires,
         } => match (value, expires) {
             (Some(value), &expires) => {
-                state.variables.insert(
+                state.borrow_mut().variables.insert(
                     variable.clone(),
                     state::PersistedVariable {
                         value: value.clone(),
@@ -221,6 +360,7 @@ fn run_variable(
                 );
             }
             (None, &Some(expires)) => {
+                let mut state = state.borrow_mut();
                 let Some(var) = state.variables.get_mut(&**variable) else {
                     bail!("Variable not set '{}'", variable);
                 };
@@ -231,7 +371,7 @@ fn run_variable(
                 bail!("Variable value and/or expires must be set");
             }
         },
-        cli::VariableSubCmd::Get { variable } => match state.variables.get(variable) {
+        cli::VariableSubCmd::Get { variable } => match state.borrow().variables.get(variable) {
             Some(v) => {
                 {
                     use owo_colors::OwoColorize as _;
@@ -261,7 +401,8 @@ fn run_variable(
         },
         cli::VariableSubCmd::List => {
             // put into btreemap to have stable order
-            let variables = BTreeMap::from_iter(&state.variables);
+            let variables = &state.borrow().variables;
+            let variables = BTreeMap::from_iter(variables);
             for (variable, v) in variables {
                 {
                     use owo_colors::OwoColorize as _;
@@ -292,14 +433,14 @@ fn run_variable(
 
 fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let config = Config::parse(config_str.parse()?)?;
-    let mut state = State::load(&cli.config)?;
+    let state = Rc::new(RefCell::new(State::load(&cli.config)?));
 
     match &cli.subcmd {
-        SubCmd::Query(s) => run_query(&cli, s, config, &mut state)?,
-        SubCmd::Variable(s) => run_variable(&cli, s, config, &mut state)?,
+        SubCmd::Query(s) => run_query(&cli, s, Rc::new(config), Rc::clone(&state))?,
+        SubCmd::Variable(s) => run_variable(&cli, s, config, Rc::clone(&state))?,
     };
 
-    state.save(&cli.config)?;
+    state.borrow_mut().save(&cli.config)?;
 
     Ok(())
 }

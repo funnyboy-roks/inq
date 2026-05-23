@@ -7,6 +7,7 @@ use reqwest::{
     Method,
     blocking::{Client, Request},
 };
+use rhai::{AST, Engine};
 use serde_json::Value as JsonValue;
 
 use crate::{
@@ -37,6 +38,7 @@ pub struct Query<'a> {
     url: Interpolated<'a>,
     body: Option<Body<'a>>,
     headers: HashMap<&'a str, Interpolated<'a>>,
+    pub post_script: Option<AST>,
 }
 
 impl<'a> Query<'a> {
@@ -115,12 +117,37 @@ impl<'a> Query<'a> {
             }
         };
 
+        let mut post_script = None;
+        if let Some(children) = node.children()
+            && let Some(node) = children.get("post-script")
+        {
+            match node.entries() {
+                [entry]
+                    if entry.name().is_none()
+                        && let Some(script) = entry.value().as_string() =>
+                {
+                    let engine = Engine::new();
+                    post_script = Some(
+                        engine
+                            .compile(script)
+                            .into_diagnostic()
+                            .context("Compiling post-script")?,
+                    )
+                }
+                _ => bail! {
+                    labels = vec![node.span().with_label("here")],
+                    "Malformed `post-script` node.  Expected `post-script <string>` ",
+                },
+            }
+        };
+
         Ok(Some(Self {
             _name: name,
             method,
             url: url.into(),
             body,
             headers,
+            post_script,
         }))
     }
 
