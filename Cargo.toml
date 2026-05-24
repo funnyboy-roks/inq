@@ -18,6 +18,6 @@ owo-colors = "4.3.0"
 humantime = "2.3.0"
 chrono = { version = "0.4.44", features = ["serde"] }
 serde = { version = "1.0.228", features = ["derive"] }
-rhai = "1.24.0"
+rhai = { version = "1.24.0", features = ["serde"] }
 chrono-humanize = "0.2.3"
 cookie = "0.18.1"

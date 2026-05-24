@@ -6,7 +6,7 @@ use reqwest::{
     blocking::Response,
     header::{self, HeaderMap, HeaderValue},
 };
-use rhai::{CustomType, TypeBuilder};
+use rhai::{CustomType, Dynamic, Engine, EvalAltResult, Position, TypeBuilder};
 
 #[derive(Debug, Clone)]
 pub enum ScriptBody {
@@ -34,7 +34,21 @@ impl CustomType for ScriptResponse {
             .with_get("url", |r: &mut Self| r.url.clone())
             .with_get("remote_addr", |r: &mut Self| r.remote_addr)
             .with_get("headers", |r: &mut Self| r.headers.clone())
-            .with_get("content_length", |r: &mut Self| r.content_length);
+            .with_get("content_length", |r: &mut Self| r.content_length)
+            .with_fn("json", |r: &mut Self| match &r.body {
+                ScriptBody::Text(_) => Err(Box::new(EvalAltResult::ErrorRuntime(
+                    Dynamic::from("Expected Json, found Text"),
+                    Position::NONE,
+                ))),
+                ScriptBody::Json(v) => rhai::serde::to_dynamic(v.clone()),
+            })
+            .with_fn("text", |r: &mut Self| match &r.body {
+                ScriptBody::Text(t) => Ok(t.clone()),
+                ScriptBody::Json(_) => Err(Box::new(EvalAltResult::ErrorRuntime(
+                    Dynamic::from("Expected Text, found Json"),
+                    Position::NONE,
+                ))),
+            });
     }
 }
 
