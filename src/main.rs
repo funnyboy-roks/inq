@@ -240,13 +240,6 @@ fn run_query(
                     ))
                 })
             })
-            .register_fn(
-                "with_expires",
-                |s: ImmutableString, expires_at: Option<DateTime<Utc>>| PersistedVariable {
-                    value: s.into(),
-                    expires_at,
-                },
-            )
             .register_get("name", |cookie: &mut Cookie| cookie.name().to_string())
             .register_get("value", |cookie: &mut Cookie| cookie.value().to_string())
             .register_get("expires", |cookie: &mut Cookie| {
@@ -254,8 +247,9 @@ fn run_query(
                     .expires_datetime()
                     .map(|d| DateTime::from_timestamp(d.unix_timestamp(), 0).unwrap())
             })
-            .register_set(
+            .register_get_set(
                 "value",
+                |persisted: &mut PersistedVariable| persisted.value.clone(),
                 |persisted: &mut PersistedVariable, value: String| {
                     persisted.value = value;
                 },

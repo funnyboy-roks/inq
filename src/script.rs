@@ -6,7 +6,7 @@ use reqwest::{
     blocking::Response,
     header::{self, HeaderMap, HeaderValue},
 };
-use rhai::{CustomType, Dynamic, Engine, EvalAltResult, Position, TypeBuilder};
+use rhai::{CustomType, Dynamic, EvalAltResult, Position, TypeBuilder};
 
 #[derive(Debug, Clone)]
 pub enum ScriptBody {
