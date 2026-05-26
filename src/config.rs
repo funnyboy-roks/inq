@@ -126,9 +126,8 @@ impl<'a> Query<'a> {
                     if entry.name().is_none()
                         && let Some(script) = entry.value().as_string() =>
                 {
-                    let engine = Engine::new();
                     post_script = Some(
-                        engine
+                        Engine::new()
                             .compile(script)
                             .into_diagnostic()
                             .context("Compiling post-script")?,
@@ -435,17 +434,17 @@ impl Config {
         Ok(out)
     }
 
-    pub fn load_variables<'a>(
-        &'a self,
-        cli: &'a SubCmd,
+    pub fn load_variables(
+        &self,
+        cli: &SubCmd,
         state: &State,
-    ) -> miette::Result<Variables<'a>> {
+    ) -> miette::Result<Variables<'static>> {
         let mut out = HashMap::with_capacity(self.variables.len());
         for (name, var) in &self.variables {
             let val = if let Some(var) = cli.get_variable(name) {
-                Interpolated::from(var)
+                Interpolated::from(var).to_owned()
             } else {
-                var.load(name, state)?
+                var.load(name, state)?.to_owned()
             };
             out.insert(name.clone(), val);
         }

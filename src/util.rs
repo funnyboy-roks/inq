@@ -6,6 +6,8 @@ use std::{
 use miette::{LabeledSpan, SourceSpan};
 use rhai::{Dynamic, Engine, EvalAltResult};
 
+pub const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
+
 #[derive(Debug, Clone)]
 pub struct Interpolated<'a>(Cow<'a, str>);
 
@@ -51,7 +53,7 @@ impl From<EvalAltResult> for InterpolateInnerError {
 }
 
 impl Interpolated<'_> {
-    fn to_owned(&self) -> Interpolated<'static> {
+    pub fn to_owned(&self) -> Interpolated<'static> {
         Interpolated(Cow::Owned(self.0.clone().into_owned()))
     }
 

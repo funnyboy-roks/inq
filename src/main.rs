@@ -1,25 +1,17 @@
-use std::{
-    cell::RefCell, collections::BTreeMap, fmt::Display, io::Write, ops::Deref, rc::Rc,
-    str::FromStr, time::Instant,
-};
+use std::{cell::RefCell, collections::BTreeMap, fmt::Display, io::Write, rc::Rc, time::Instant};
 
 use anstream::{eprintln, println};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clap::Parser;
-use cookie::Cookie;
 use miette::{Context, IntoDiagnostic, bail};
-use reqwest::{
-    blocking::Client,
-    header::{HeaderMap, HeaderValue},
-};
-use rhai::{Engine, EvalAltResult, ImmutableString, Position, Scope};
+use reqwest::blocking::Client;
 use serde_json::Value as JsonValue;
 
 use crate::{
     cli::{Cli, QueryCommand, SubCmd, VariableCommand},
     config::Config,
-    script::{ScriptBody, ScriptResponse},
-    state::{PersistedVariable, State},
+    script::{ScriptBody, ScriptResponse, script_engine},
+    state::State,
 };
 
 mod cli;
@@ -84,9 +76,9 @@ fn run_query(
         .get_query(&query_cmd.query)?
         .context("Query not defined")?;
 
-    let vars = config.load_variables(&cli.subcmd, &state.borrow())?;
+    let vars = Rc::new(config.load_variables(&cli.subcmd, &state.borrow())?);
 
-    for (name, val) in &vars {
+    for (name, val) in &*vars {
         let mut state = state.borrow_mut();
         if let Some(var) = config.get_variable(name)
             && var.persist.persists()
@@ -179,7 +171,7 @@ fn run_query(
         }
 
         eprintln!("  {}:", "Headers".blue());
-        for (name, value) in &res.headers {
+        for (name, value) in &*res.headers {
             match value.to_str() {
                 Ok(s) => eprintln!("    {}: {}", name.yellow(), s),
                 Err(_) => eprintln!("    {}: {:?}", name.yellow(), value),
@@ -212,116 +204,8 @@ fn run_query(
             owo_colors::OwoColorize::purple(&"Running post-script")
         );
 
-        let mut engine = Engine::new();
-
-        #[derive(Clone, Copy)]
-        struct Variables;
-
-        engine
-            .build_type::<ScriptResponse>()
-            .register_indexer_get(
-                |headers: &mut HeaderMap<HeaderValue>, key: ImmutableString| {
-                    headers
-                        .get(key.as_str())
-                        .map(|v| v.to_str().unwrap().to_string())
-                        .ok_or_else(|| {
-                            Box::new(EvalAltResult::ErrorIndexNotFound(
-                                key.into(),
-                                Position::NONE,
-                            ))
-                        })
-                },
-            )
-            .register_fn("parse_cookie", |s: ImmutableString| {
-                Cookie::from_str(&s).map_err(|e| {
-                    Box::new(EvalAltResult::ErrorSystem(
-                        e.as_str().to_string(),
-                        Box::new(e),
-                    ))
-                })
-            })
-            .register_get("name", |cookie: &mut Cookie| cookie.name().to_string())
-            .register_get("value", |cookie: &mut Cookie| cookie.value().to_string())
-            .register_get("expires", |cookie: &mut Cookie| {
-                cookie
-                    .expires_datetime()
-                    .map(|d| DateTime::from_timestamp(d.unix_timestamp(), 0).unwrap())
-            })
-            .register_get_set(
-                "value",
-                |persisted: &mut PersistedVariable| persisted.value.clone(),
-                |persisted: &mut PersistedVariable, value: String| {
-                    persisted.value = value;
-                },
-            )
-            .register_set(
-                "expires_at",
-                |persisted: &mut PersistedVariable, expires_at: Option<DateTime<Utc>>| {
-                    persisted.expires_at = expires_at;
-                },
-            )
-            .on_print(|s| {
-                for l in s.lines() {
-                    println!("{} {}", owo_colors::OwoColorize::blue(&"[post-script]"), l);
-                }
-            })
-            .on_debug(|s, src, pos| {
-                debug_assert!(src.is_none());
-                for l in s.lines() {
-                    print!("{} ", owo_colors::OwoColorize::blue(&"[post-script]"));
-                    if let (Some(line), Some(pos)) = (pos.line(), pos.position()) {
-                        print!(
-                            "{} ",
-                            owo_colors::OwoColorize::cyan(&format!("[{}:{}]", line, pos))
-                        );
-                    }
-                    println!("{}", l);
-                }
-            });
-
-        for name in state.borrow().variables.keys() {
-            let name = Rc::new(name.clone());
-            engine.register_set(name.deref().clone(), {
-                let name = name.clone();
-                let config = config.clone();
-                let state = state.clone();
-                move |_v: &mut Variables, value: ImmutableString| {
-                    state.borrow_mut().variables.insert(
-                        name.deref().into(),
-                        state::PersistedVariable {
-                            value: value.into(),
-                            expires_at: config
-                                .get_variable(&name)
-                                .unwrap()
-                                .persist
-                                .duration()
-                                .map(|d| Utc::now() + d),
-                        },
-                    );
-                }
-            });
-
-            engine.register_set(name.deref().clone(), {
-                let state = state.clone();
-                let name = name.clone();
-                move |_v: &mut Variables, value: PersistedVariable| {
-                    state
-                        .borrow_mut()
-                        .variables
-                        .insert(name.deref().into(), value);
-                }
-            });
-
-            engine.register_get(name.deref().clone(), {
-                let state = state.clone();
-                move |_v: &mut Variables| state.borrow_mut().variables[name.deref()].clone()
-            });
-        }
-
-        let mut scope = Scope::new();
-
+        let (engine, mut scope) = script_engine(state, config, vars);
         scope.push("response", res);
-        scope.push("vars", Variables);
 
         engine
             .run_ast_with_scope(&mut scope, &post_script)

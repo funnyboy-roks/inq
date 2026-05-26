@@ -19,9 +19,11 @@ queries {
         }
         """#
         post-script #"""
+        debug(vars);
+        debug(vars.COOKIE);
         let cookie = parse_cookie(response.headers["set-cookie"]);
         vars.COOKIE.value = cookie.value;
-        vars.COOKIE.expires_at = cookie.expires;
+        vars.COOKIE.expires_at = cookie.expires_at;
         """#
     }
     status GET "${BASE_URL}/status/${CODE}"

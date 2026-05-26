@@ -1,18 +1,69 @@
 use std::{
     collections::HashMap,
+    fmt::Write,
     io::BufWriter,
     path::{Path, PathBuf},
 };
 
 use chrono::{DateTime, Utc};
 use miette::Context;
-use rhai::{CustomType, Dynamic, EvalAltResult, Position, TypeBuilder};
+use rhai::{CustomType, TypeBuilder};
 use serde::{Deserialize, Serialize};
 
-#[derive(Serialize, Deserialize, Debug, Clone, CustomType)]
+use crate::util::DATETIME_FORMAT;
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PersistedVariable {
     pub value: String,
     pub expires_at: Option<DateTime<Utc>>,
+}
+
+impl PersistedVariable {
+    pub fn debug<W>(&self, mut out: W) -> Result<W, std::fmt::Error>
+    where
+        W: Write,
+    {
+        write!(out, "PersistedVariable {{ value: {:?}", self.value)?;
+
+        if let Some(expires) = self.expires_at {
+            write!(
+                out,
+                ", expires_at: {}",
+                expires
+                    .with_timezone(&chrono::Local)
+                    .format(DATETIME_FORMAT)
+            )?;
+        }
+
+        write!(out, " }}")?;
+
+        Ok(out)
+    }
+}
+
+impl CustomType for PersistedVariable {
+    fn build(mut builder: TypeBuilder<Self>) {
+        builder
+            .on_debug(|this: &mut Self| {
+                this.debug(String::new())
+                    .expect("Write to string can't fail")
+            })
+            .with_name("PersistedVariable")
+            .with_get_set(
+                "value",
+                |persisted: &mut PersistedVariable| persisted.value.clone(),
+                |persisted: &mut PersistedVariable, value: String| {
+                    persisted.value = value;
+                },
+            )
+            .with_get_set(
+                "expires_at",
+                |persisted: &mut PersistedVariable| persisted.expires_at,
+                |persisted: &mut PersistedVariable, value: Option<DateTime<Utc>>| {
+                    persisted.expires_at = value;
+                },
+            );
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
