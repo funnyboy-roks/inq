@@ -1,4 +1,11 @@
-use std::{borrow::Cow, collections::HashMap, path::PathBuf, str::FromStr, time::Duration};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+    ops::Deref,
+    path::PathBuf,
+    str::FromStr,
+    time::Duration,
+};
 
 use chrono::Utc;
 use kdl::{KdlDocument, KdlNode};
@@ -6,12 +13,14 @@ use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, Request},
+    header::{HeaderMap, HeaderName, HeaderValue},
 };
 use rhai::{AST, Engine};
 use serde_json::Value as JsonValue;
 
 use crate::{
     cli::SubCmd,
+    parse::{get_entry_string, get_entry_string_named, get_one_of},
     state::State,
     util::{Interpolated, WithLabel},
 };
@@ -42,55 +51,59 @@ pub struct Query<'a> {
 }
 
 impl<'a> Query<'a> {
-    pub fn from_node(node: &'a KdlNode) -> miette::Result<Option<Self>> {
+    fn parse_heading(node: &'a KdlNode) -> miette::Result<Self> {
         let name = node.name().value();
 
         let method = Method::from_bytes(
-            node.entry(0)
+            get_entry_string_named(node, 0, false, "Query method")?
                 .context("Expected query method")?
-                .value()
-                .as_string()
-                .context("Query method must be a string.")?
+                .1
                 .as_bytes(),
         )
         .into_diagnostic()
         .context("Invalid query method")?;
 
-        let url = node
-            .entry(1)
-            .context("Expected query url")?
-            .value()
-            .as_string()
-            .context("Query url must be a string.")?;
+        let (_, url) =
+            get_entry_string_named(node, 1, false, "Query url")?.context("Expected query url")?;
 
-        let body = if let Some(children) = node.children()
-            && let Some(body_node) = children.get("body")
-        {
-            match body_node.entries() {
-                [entry]
-                    if let Some(name) = entry.name()
-                        && name.value() == "text" =>
-                {
-                    let text = entry
-                        .value()
-                        .as_string()
-                        .context("Expected body.text to be a string.")?;
-                    Some(Body::Text(text.into()))
-                }
-                [entry]
-                    if let Some(name) = entry.name()
-                        && name.value() == "json" =>
-                {
-                    Some(Body::Json {
-                        json: entry
-                            .value()
-                            .as_string()
-                            .context("Expected body.json to be a string.")?
-                            .into(),
-                        span: entry.span(),
-                    })
-                }
-                _ => {
+        Ok(Self {
+            _name: name,
+            method,
+            url: url.into(),
+            body: None,
+            headers: Default::default(),
+            post_script: None,
+        })
+    }
+
+    fn parse_headers(node: &KdlNode) -> miette::Result<HashMap<&str, Interpolated<'_>>> {
+        let mut headers = HashMap::new();
+        for n in node.iter_children() {
+            let (_, value) = get_entry_string_named(n, 0, true, "header value")?
+                .context("Expected header value to be a string.")?;
+
+            headers.insert(n.name().value(), value.into());
+        }
+        Ok(headers)
+    }
+
+    pub fn from_node(node: &'a KdlNode) -> miette::Result<Self> {
+        let this = Self::parse_heading(node)?;
+
+        let Some(children) = node.children() else {
+            // if no children, we're done parsing
+            return Ok(this);
+        };
+
+        let body = if let Some(body_node) = children.get("body") {
+            match get_one_of(body_node, "body", ["text", "json"])? {
+                Some(("text", _, text)) => Some(Body::Text(text.into())),
+                Some(("json", e, json)) => Some(Body::Json {
+                    json: json.into(),
+                    span: e.span(),
+                }),
+                v => {
+                    dbg!(v);
                     return Err(miette::miette! {
                         labels = vec![body_node.span().with_label("here")],
                         "Malformed `body` node",
@@ -101,53 +114,36 @@ impl<'a> Query<'a> {
             None
         };
 
-        let mut headers = HashMap::new();
-        if let Some(children) = node.children()
-            && let Some(node) = children.get("headers")
-        {
-            for n in node.iter_children() {
-                let value = n
-                    .entry(0)
-                    .context("Expected <name> <value> headers.")?
-                    .value()
-                    .as_string()
-                    .context("Expected header value to be a string.")?;
+        let headers = children
+            .get("headers")
+            .map(Self::parse_headers)
+            .transpose()?
+            .unwrap_or_default();
 
-                headers.insert(n.name().value(), value.into());
-            }
-        };
-
-        let mut post_script = None;
-        if let Some(children) = node.children()
-            && let Some(node) = children.get("post-script")
-        {
-            match node.entries() {
-                [entry]
-                    if entry.name().is_none()
-                        && let Some(script) = entry.value().as_string() =>
-                {
-                    post_script = Some(
-                        Engine::new()
-                            .compile(script)
-                            .into_diagnostic()
-                            .context("Compiling post-script")?,
-                    )
-                }
-                _ => bail! {
+        let post_script = if let Some(node) = children.get("post-script") {
+            if let Some((_, script)) = get_entry_string_named(node, 0, false, "post-script")? {
+                Some(
+                    Engine::new()
+                        .compile(script)
+                        .into_diagnostic()
+                        .context("Compiling post-script")?,
+                )
+            } else {
+                bail! {
                     labels = vec![node.span().with_label("here")],
                     "Malformed `post-script` node.  Expected `post-script <string>` ",
-                },
+                }
             }
+        } else {
+            None
         };
 
-        Ok(Some(Self {
-            _name: name,
-            method,
-            url: url.into(),
+        Ok(Self {
             body,
             headers,
             post_script,
-        }))
+            ..this
+        })
     }
 
     pub(crate) fn to_request(
@@ -229,126 +225,86 @@ pub struct Variable {
 }
 
 impl Variable {
-    fn parse(node: &KdlNode) -> miette::Result<(String, Self)> {
-        let name = node.name().value().to_string();
-
-        let mut persist = Persist::Never;
-        let mut value: Option<VariableValue> = None;
-        for entry in node.entries() {
-            if let Some(ename) = entry.name() {
-                match ename.value() {
-                    "file" => {
-                        if value.is_some() {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Default variable value may only be set once"
-                            }
-                        }
-
-                        let Some(s) = entry.value().as_string() else {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "File path must be a string"
-                            }
-                        };
-
-                        let path = std::env::current_dir().into_diagnostic()?.join(s);
-
-                        value = Some(VariableValue::File(path));
-                    }
-                    "env" => {
-                        if value.is_some() {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Default variable value may only be set once"
-                            }
-                        }
-
-                        let Some(s) = entry.value().as_string() else {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Environment variable must be a string"
-                            }
-                        };
-
-                        value = Some(VariableValue::Env {
-                            var: s.into(),
-                            span: entry.span(),
-                        });
-                    }
-                    "persist" => {
-                        if persist != Persist::Never {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Persist may only be set once"
-                            }
-                        }
-
-                        if let Some(b) = entry.value().as_bool() {
-                            if !b {
-                                bail! {
-                                    labels = vec![entry.span().with_label("here")],
-                                    "Persist must either be #true or a duration"
-                                }
-                            }
-                            persist = Persist::Forever;
-                        } else if let Some(s) = entry.value().as_string() {
-                            match humantime::parse_duration(s) {
-                                Ok(d) => {
-                                    persist = Persist::Duration(d);
-                                }
-                                Err(e) => {
-                                    bail! {
-                                        labels = vec![entry.span().with_label("here")],
-                                        "Duration Parse Error: {}", e
-                                    }
-                                }
-                            }
-                        } else {
-                            bail! {
-                                labels = vec![entry.span().with_label("here")],
-                                "Persist must either be #true or a duration like \"1 hour\""
-                            }
-                        }
-                    }
-                    _ => {
-                        bail! {
-                            labels = vec![entry.span().with_label("here")],
-                            "Expected variables to be in the format of <name> <value>."
-                        }
-                    }
-                }
-            } else {
-                if value.is_some() {
-                    bail! {
-                        labels = vec![entry.span().with_label("here")],
-                        "Default variable value may only be set once"
-                    }
-                }
-
-                let s = entry.value();
-                let s = if let Some(s) = s.as_string() {
-                    s.to_string()
-                } else if let Some(v) = s.as_integer() {
-                    v.to_string()
-                } else if let Some(v) = s.as_float() {
-                    v.to_string()
-                } else {
-                    bail! {
-                        labels = vec![entry.span().with_label("here")],
-                        "Expected variable value to be a string or number."
-                    }
-                };
-                value = Some(VariableValue::Str(s));
+    fn parse_value(node: &KdlNode) -> miette::Result<VariableValue> {
+        // check for conflicting keys
+        let require_1 = HashSet::<&str>::from_iter(["file", "env"]);
+        let mut req1_count = 0;
+        for e in node.entries() {
+            if let Some(name) = e.name()
+                && require_1.contains(name.value())
+            {
+                req1_count += 1;
+            }
+        }
+        if req1_count > 1
+            || (req1_count == 0 && node.entries().iter().find(|x| x.name().is_none()).is_none())
+        {
+            bail! {
+                labels = vec![node.span().with_label("here")],
+                help = "See the wiki for more information: https://codeberg.org/fbr/inq/wiki/Variables",
+                "All variables must contain a default value."
             }
         }
 
-        let Some(value) = value else {
-            bail! {
-                labels = vec![node.span().with_label("here")],
-                "Expected variable value to be one of `<value>`, `file=<path>`, or `env=<env-var>`."
-            }
+        if let Some((_, path)) = get_entry_string(node, "file", false)? {
+            let path = std::env::current_dir().into_diagnostic()?.join(&*path);
+
+            return Ok(VariableValue::File(path));
+        }
+
+        if let Some((entry, var)) = get_entry_string(node, "env", false)? {
+            return Ok(VariableValue::Env {
+                var: var.into(),
+                span: entry.span(),
+            });
+        }
+
+        if let Some((_, s)) = get_entry_string(node, 0, true)? {
+            return Ok(VariableValue::Str(s.into_owned()));
+        }
+
+        bail! {
+            labels = vec![node.span().with_label("here")],
+            help = "See the wiki for more information: https://codeberg.org/fbr/inq/wiki/Variables",
+            "All variables must contain a default value."
         };
+    }
+
+    fn parse_persist(node: &KdlNode) -> miette::Result<Persist> {
+        let Some(entry) = node.entry("persist") else {
+            return Ok(Persist::Never);
+        };
+
+        if let Some(b) = entry.value().as_bool() {
+            if !b {
+                bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Persist must either be #true or a duration like \"1 hour\""
+                }
+            }
+
+            Ok(Persist::Forever)
+        } else if let Some(s) = entry.value().as_string() {
+            match humantime::parse_duration(s) {
+                Ok(d) => Ok(Persist::Duration(d)),
+                Err(e) => bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Unable to parse duration: {}", e,
+                },
+            }
+        } else {
+            bail! {
+                labels = vec![entry.span().with_label("here")],
+                "Persist must either be #true or a duration like \"1 hour\""
+            }
+        }
+    }
+
+    fn parse(node: &KdlNode) -> miette::Result<(String, Self)> {
+        let name = node.name().value().to_string();
+
+        let value = Self::parse_value(node)?;
+        let persist = Self::parse_persist(node)?;
 
         Ok((
             name,
@@ -465,7 +421,7 @@ impl Config {
             .get(name);
 
         if let Some(q) = q {
-            Query::from_node(q)
+            Query::from_node(q).map(Some)
         } else {
             Ok(None)
         }
