@@ -1,7 +1,6 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    ops::Deref,
     path::PathBuf,
     str::FromStr,
     time::Duration,
@@ -13,7 +12,6 @@ use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, Request},
-    header::{HeaderMap, HeaderName, HeaderValue},
 };
 use rhai::{AST, Engine};
 use serde_json::Value as JsonValue;
