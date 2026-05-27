@@ -1,6 +1,6 @@
 use std::{borrow::Cow, fmt::Display};
 
-use kdl::{KdlEntry, KdlNode, KdlValue, NodeKey};
+use kdl::{KdlDocument, KdlEntry, KdlNode, KdlValue, NodeKey};
 use miette::bail;
 
 use crate::util::WithLabel;
@@ -79,6 +79,27 @@ pub fn get_one_of<'a, 'k, const N: usize>(
                 };
 
                 found = Some((key, e, s))
+            }
+        }
+    }
+
+    Ok(found)
+}
+
+/// Get a node and error if it is duplicated
+pub fn unique_node<'a>(doc: &'a KdlDocument, key: &str) -> miette::Result<Option<&'a KdlNode>> {
+    // check for key to exist
+    let mut found = None;
+
+    for n in doc.nodes() {
+        if n.name().value() == key {
+            if found.is_some() {
+                bail! {
+                    labels = vec![n.span().with_label("This node")],
+                    "{} may only be specified once", key
+                }
+            } else {
+                found = Some(n)
             }
         }
     }

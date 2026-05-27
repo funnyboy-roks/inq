@@ -19,7 +19,10 @@ use serde_json::Value as JsonValue;
 
 use crate::{
     cli::SubCmd,
-    parse::{expect_entry, get_entry_string, get_entry_string_named, get_one_of},
+    parse::{
+        expect_entry, get_entry_string, get_entry_string_named, get_one_of, unique_entry,
+        unique_node,
+    },
     state::State,
     util::{Interpolated, WithLabel},
 };
@@ -113,7 +116,7 @@ impl<'a> Query<'a> {
             return Ok(this);
         };
 
-        let body = if let Some(body_node) = children.get("body") {
+        let body = if let Some(body_node) = unique_node(children, "body")? {
             match get_one_of(body_node, "body", ["text", "json"])? {
                 Some(("text", _, text)) => Some(Body::Text(text.into())),
                 Some(("json", e, json)) => Some(Body::Json {
@@ -132,8 +135,7 @@ impl<'a> Query<'a> {
             None
         };
 
-        let headers = children
-            .get("headers")
+        let headers = unique_node(children, "headers")?
             .map(|n| Self::parse_headers(n, &client_config.headers))
             .transpose()?
             .unwrap_or_else(|| {
@@ -144,7 +146,7 @@ impl<'a> Query<'a> {
                     .collect()
             });
 
-        let post_script = if let Some(node) = children.get("post-script") {
+        let post_script = if let Some(node) = unique_node(children, "post-script")? {
             if let Some((_, script)) = get_entry_string_named(node, 0, false, "post-script")? {
                 Some(
                     Engine::new()
@@ -295,32 +297,23 @@ impl Variable {
     }
 
     fn parse_persist(node: &KdlNode) -> miette::Result<Persist> {
-        let Some(entry) = node.entry("persist") else {
+        let Some(entry) = unique_entry(node, "persist")? else {
             return Ok(Persist::Never);
         };
 
-        if let Some(b) = entry.value().as_bool() {
-            if !b {
-                bail! {
-                    labels = vec![entry.span().with_label("here")],
-                    "Persist must either be #true or a duration like \"1 hour\""
-                }
-            }
-
-            Ok(Persist::Forever)
-        } else if let Some(s) = entry.value().as_string() {
-            match humantime::parse_duration(s) {
+        match entry.value() {
+            KdlValue::String(s) => match humantime::parse_duration(s) {
                 Ok(d) => Ok(Persist::Duration(d)),
                 Err(e) => bail! {
                     labels = vec![entry.span().with_label("here")],
                     "Unable to parse duration: {}", e,
                 },
-            }
-        } else {
-            bail! {
+            },
+            KdlValue::Bool(true) => Ok(Persist::Forever),
+            _ => bail! {
                 labels = vec![entry.span().with_label("here")],
                 "Persist must either be #true or a duration like \"1 hour\""
-            }
+            },
         }
     }
 
@@ -408,13 +401,12 @@ impl ClientConfig {
     }
 
     fn new(children: &KdlDocument) -> miette::Result<Self> {
-        let headers = children
-            .get("headers")
+        let headers = unique_node(children, "headers")?
             .map(Self::parse_headers)
             .transpose()?
             .unwrap_or_default();
 
-        let redirect = if let Some(redirect) = children.get("redirect") {
+        let redirect = if let Some(redirect) = unique_node(children, "redirect")? {
             let entry = expect_entry(
                 redirect,
                 "limit",
@@ -440,7 +432,7 @@ impl ClientConfig {
             None
         };
 
-        let timeout = if let Some(timeout) = children.get("timeout") {
+        let timeout = if let Some(timeout) = unique_node(children, "timeout")? {
             let entry = expect_entry(
                 timeout,
                 0,
@@ -465,7 +457,9 @@ impl ClientConfig {
             None
         };
 
-        let connect_timeout = if let Some(connect_timeout) = children.get("connect-timeout") {
+        let connect_timeout = if let Some(connect_timeout) =
+            unique_node(children, "connect-timeout")?
+        {
             let entry = expect_entry(
                 connect_timeout,
                 0,
@@ -490,7 +484,7 @@ impl ClientConfig {
             None
         };
 
-        let interface = if let Some(iface) = children.get("interface") {
+        let interface = if let Some(iface) = unique_node(children, "interface")? {
             // from https://docs.rs/reqwest/latest/src/reqwest/blocking/client.rs.html#720-722
             #[cfg(not(any(
                 target_os = "android",
@@ -593,7 +587,7 @@ impl Config {
 
     fn parse_variables(doc: &KdlDocument) -> miette::Result<HashMap<String, Variable>> {
         let mut out = HashMap::new();
-        let Some(vars) = doc.get("variables") else {
+        let Some(vars) = unique_node(doc, "variables")? else {
             return Ok(out);
         };
 
@@ -608,7 +602,7 @@ impl Config {
     }
 
     fn parse_client(doc: &KdlDocument) -> miette::Result<ClientConfig> {
-        let Some(client) = doc.get("client") else {
+        let Some(client) = unique_node(doc, "client")? else {
             return Ok(Default::default());
         };
 
