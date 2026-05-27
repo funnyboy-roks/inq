@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc, time::Instant};
 
 use chrono::Utc;
+use fuzzt::processors::{LowerAlphaNumStringProcessor, StringProcessor};
 use miette::{Context, IntoDiagnostic, bail};
 
 use crate::{
@@ -9,6 +10,7 @@ use crate::{
     print::{print_request, print_response},
     script::{ScriptResponse, script_engine},
     state::{PersistedVariable, State},
+    util::WithLabel,
 };
 
 fn list_queries(cli: &Cli, config: Rc<Config>, state: Rc<RefCell<State>>) -> miette::Result<()> {
@@ -33,8 +35,7 @@ fn list_queries(cli: &Cli, config: Rc<Config>, state: Rc<RefCell<State>>) -> mie
     let queries: Vec<_> = config.queries()?.collect();
 
     if queries.is_empty() {
-        println!("No queries defined");
-        return Ok(());
+        bail!("No queries defined");
     }
 
     let name_len = queries
@@ -96,8 +97,6 @@ pub(crate) fn run(
         return list_queries(cli, config, state);
     };
 
-    let query = config.get_query(query)?.context("Query not defined")?;
-
     let vars = Rc::new(config.load_variables(&cli.subcmd, &state.borrow())?);
 
     for (name, val) in &*vars {
@@ -115,6 +114,40 @@ pub(crate) fn run(
             );
         }
     }
+
+    let Some(query) = config.get_query(query)? else {
+        let closest = config
+            .queries()?
+            .flat_map(|q| q.1.ok())
+            .map(|q| {
+                (
+                    fuzzt::algorithms::normalized_levenshtein(
+                        &LowerAlphaNumStringProcessor.process(query),
+                        &LowerAlphaNumStringProcessor.process(q._name),
+                    ),
+                    q,
+                )
+            })
+            .max_by(|l, r| l.0.total_cmp(&r.0));
+
+        let Some(closest) = closest else {
+            bail!("No queries defined");
+        };
+
+        let (lev, closest) = closest;
+
+        if lev > 0.5 {
+            miette::bail! {
+                labels = vec![closest.name_span.with_label("Similarly named query defined here")],
+                help = "Another query with a similar name exists",
+                "Query '{}' not found", query
+            }
+        } else {
+            miette::bail! {
+                "Query '{}' not found", query
+            }
+        }
+    };
 
     let client = config.make_client(&vars)?;
     let (req, req_body) = query.to_request(&client, &vars)?;

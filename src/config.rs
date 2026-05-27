@@ -45,6 +45,7 @@ pub enum PopulatedBody<'a> {
 #[derive(Debug, Clone)]
 pub struct Query<'a> {
     pub(crate) _name: &'a str,
+    pub(crate) name_span: SourceSpan,
     pub(crate) method: Method,
     pub(crate) url: Interpolated<'a>,
     pub(crate) body: Option<Body<'a>>,
@@ -70,6 +71,7 @@ impl<'a> Query<'a> {
 
         Ok(Self {
             _name: name,
+            name_span: node.name().span(),
             method,
             url: url.into(),
             body: None,
