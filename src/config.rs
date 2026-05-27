@@ -44,11 +44,11 @@ pub enum PopulatedBody<'a> {
 
 #[derive(Debug, Clone)]
 pub struct Query<'a> {
-    _name: &'a str,
-    method: Method,
-    url: Interpolated<'a>,
-    body: Option<Body<'a>>,
-    headers: HashMap<&'a str, Interpolated<'a>>,
+    pub(crate) _name: &'a str,
+    pub(crate) method: Method,
+    pub(crate) url: Interpolated<'a>,
+    pub(crate) body: Option<Body<'a>>,
+    pub(crate) headers: HashMap<&'a str, Interpolated<'a>>,
     pub post_script: Option<AST>,
 }
 
@@ -642,18 +642,24 @@ impl Config {
     }
 
     pub fn get_query<'a>(&'a self, name: &str) -> miette::Result<Option<Query<'a>>> {
-        let q = self
-            .doc
-            .get("queries")
+        unique_node(&self.doc, "queries")?
             .context("Missing queries node")?
             .children()
             .context("Missing queries children")?
-            .get(name);
+            .get(name)
+            .map(|q| Query::new(q, &self.client))
+            .transpose()
+    }
 
-        if let Some(q) = q {
-            Query::new(q, &self.client).map(Some)
-        } else {
-            Ok(None)
-        }
+    pub fn queries<'a>(
+        &'a self,
+    ) -> miette::Result<impl Iterator<Item = (&'a str, miette::Result<Query<'a>>)>> {
+        Ok(unique_node(&self.doc, "queries")?
+            .context("Missing queries node")?
+            .children()
+            .context("Missing queries children")?
+            .nodes()
+            .iter()
+            .map(|q| (q.name().value(), Query::new(q, &self.client))))
     }
 }

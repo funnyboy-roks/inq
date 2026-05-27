@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 
+pub(crate) mod query;
+pub(crate) mod variable;
+
 #[derive(Debug, Clone)]
 pub struct Variable {
     pub name: String,
@@ -32,7 +35,7 @@ pub struct QueryCommand {
     pub raw: bool,
     #[clap(short, long, value_parser = Variable::parse)]
     var: Vec<Variable>,
-    pub query: String,
+    pub query: Option<String>,
 }
 
 impl QueryCommand {

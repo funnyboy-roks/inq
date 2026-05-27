@@ -3,12 +3,8 @@ variables {
     BASE_URL "http://localhost:${PORT}"
     USER "john" persist=#true
     PASSWORD file="password" persist="5m"
-    CODE env="CODE"
+    CODE 401
     COOKIE "" persist=#true // persistence time set in post-script
-}
-
-client {
-    redirect limit=10
 }
 
 queries {
