@@ -4,7 +4,6 @@ use anstream::{eprintln, println};
 use chrono::Utc;
 use clap::Parser;
 use miette::{Context, IntoDiagnostic, bail};
-use reqwest::blocking::Client;
 
 use crate::{
     cli::{Cli, QueryCommand, SubCmd, VariableCommand},
@@ -28,8 +27,6 @@ fn run_query(
     config: Rc<Config>,
     state: Rc<RefCell<State>>,
 ) -> miette::Result<()> {
-    let client = Client::new();
-
     let query = config
         .get_query(&query_cmd.query)?
         .context("Query not defined")?;
@@ -52,6 +49,7 @@ fn run_query(
         }
     }
 
+    let client = config.make_client(&vars)?;
     let (req, req_body) = query.to_request(&client, &vars)?;
 
     print_request(&req, req_body)?;

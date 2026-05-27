@@ -1,23 +1,19 @@
 use std::{borrow::Cow, fmt::Display};
 
-use kdl::{KdlEntry, KdlNode, NodeKey};
+use kdl::{KdlEntry, KdlNode, KdlValue, NodeKey};
 use miette::bail;
 
 use crate::util::WithLabel;
 
 fn entry_value_as_string(entry: &KdlEntry) -> miette::Result<Cow<'_, str>> {
-    let value = entry.value();
-    let s: Cow<'_, _> = if let Some(s) = value.as_string() {
-        s.into()
-    } else if let Some(v) = value.as_integer() {
-        v.to_string().into()
-    } else if let Some(v) = value.as_float() {
-        v.to_string().into()
-    } else {
-        bail! {
+    let s: Cow<'_, _> = match entry.value() {
+        KdlValue::String(s) => s.as_str().into(),
+        KdlValue::Integer(n) => n.to_string().into(),
+        KdlValue::Float(f) => f.to_string().into(),
+        KdlValue::Bool(_) | KdlValue::Null => bail! {
             labels = vec![entry.span().with_label("here")],
             "Expected variable value to be a string or number."
-        }
+        },
     };
 
     Ok(s)
@@ -37,7 +33,7 @@ pub fn get_entry_string_named(
     coerce: bool,
     name: impl Display,
 ) -> miette::Result<Option<(&KdlEntry, Cow<'_, str>)>> {
-    let Some(entry) = node.entry(key) else {
+    let Some(entry) = unique_entry(node, key)? else {
         return Ok(None);
     };
 
@@ -88,4 +84,49 @@ pub fn get_one_of<'a, 'k, const N: usize>(
     }
 
     Ok(found)
+}
+
+/// Get an entry and error if it is duplicated
+pub fn unique_entry(node: &KdlNode, key: impl Into<NodeKey>) -> miette::Result<Option<&KdlEntry>> {
+    match key.into() {
+        NodeKey::Key(key) => {
+            // check for key to exist
+            let mut found = None;
+
+            for e in node.entries() {
+                let Some(name) = e.name() else {
+                    continue;
+                };
+
+                if name.value() == key.value() {
+                    if found.is_some() {
+                        bail! {
+                            labels = vec![node.span().with_label("In this node")],
+                            "{} may only be specified once", key
+                        }
+                    } else {
+                        found = Some(e)
+                    }
+                }
+            }
+
+            Ok(found)
+        }
+        NodeKey::Index(idx) => Ok(node.entry(idx)), // numerical indicies are always unique
+    }
+}
+
+/// Get an entry and error if it is duplicated or not specified
+pub fn expect_entry<'a>(
+    node: &'a KdlNode,
+    key: impl Into<NodeKey>,
+    message: &str,
+) -> miette::Result<&'a KdlEntry> {
+    let Some(limit) = unique_entry(node, key)? else {
+        bail! {
+            labels = vec![node.span().with_label("in this node")],
+            "{}", message
+        }
+    };
+    Ok(limit)
 }

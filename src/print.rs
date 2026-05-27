@@ -165,10 +165,10 @@ pub fn print_variable(v: &PersistedVariable, indent: bool) {
 
     println!("{}", v.value); // print to stdout so it can be piped
 
+    if indent {
+        eprint!("  ");
+    }
     if let Some(expires_at) = v.expires_at {
-        if indent {
-            eprint!("  ");
-        }
         eprintln!(
             "{} {} {}",
             "Expires:".blue(),
@@ -180,4 +180,14 @@ pub fn print_variable(v: &PersistedVariable, indent: bool) {
     } else {
         eprintln!("{} Never", "Expires:".blue());
     }
+}
+
+#[macro_export]
+macro_rules! warn {
+    ($($tt: tt)*) => {{
+        use owo_colors::OwoColorize as _;
+
+        eprint!("{}: ", "WARNING".yellow().bold());
+        eprintln!($($tt)*);
+    }};
 }

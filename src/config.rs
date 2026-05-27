@@ -7,18 +7,19 @@ use std::{
 };
 
 use chrono::Utc;
-use kdl::{KdlDocument, KdlNode};
+use kdl::{KdlDocument, KdlNode, KdlValue};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, Request},
+    redirect,
 };
 use rhai::{AST, Engine};
 use serde_json::Value as JsonValue;
 
 use crate::{
     cli::SubCmd,
-    parse::{get_entry_string, get_entry_string_named, get_one_of},
+    parse::{expect_entry, get_entry_string, get_entry_string_named, get_one_of},
     state::State,
     util::{Interpolated, WithLabel},
 };
@@ -74,18 +75,37 @@ impl<'a> Query<'a> {
         })
     }
 
-    fn parse_headers(node: &KdlNode) -> miette::Result<HashMap<&str, Interpolated<'_>>> {
-        let mut headers = HashMap::new();
+    fn parse_headers(
+        node: &'a KdlNode,
+        default_headers: &'a HashMap<String, Interpolated<'static>>,
+    ) -> miette::Result<HashMap<&'a str, Interpolated<'a>>> {
+        let mut headers: HashMap<&str, Interpolated<'_>> = default_headers
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.clone()))
+            .collect();
         for n in node.iter_children() {
+            let name = n.name().value();
+
+            if name.starts_with('~') {
+                headers.remove(&name['~'.len_utf8()..]);
+                if !n.entries().is_empty() {
+                    bail! {
+                        labels = vec![n.span().with_label("This node")],
+                        "Negated headers may not have a value."
+                    }
+                }
+                continue;
+            }
+
             let (_, value) = get_entry_string_named(n, 0, true, "header value")?
                 .context("Expected header value to be a string.")?;
 
-            headers.insert(n.name().value(), value.into());
+            headers.insert(name, value.into());
         }
         Ok(headers)
     }
 
-    pub fn from_node(node: &'a KdlNode) -> miette::Result<Self> {
+    pub fn new(node: &'a KdlNode, client_config: &'a ClientConfig) -> miette::Result<Self> {
         let this = Self::parse_heading(node)?;
 
         let Some(children) = node.children() else {
@@ -114,9 +134,15 @@ impl<'a> Query<'a> {
 
         let headers = children
             .get("headers")
-            .map(Self::parse_headers)
+            .map(|n| Self::parse_headers(n, &client_config.headers))
             .transpose()?
-            .unwrap_or_default();
+            .unwrap_or_else(|| {
+                client_config
+                    .headers
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.clone()))
+                    .collect()
+            });
 
         let post_script = if let Some(node) = children.get("post-script") {
             if let Some((_, script)) = get_entry_string_named(node, 0, false, "post-script")? {
@@ -358,16 +384,209 @@ impl Variable {
 
 pub type Variables<'a> = HashMap<String, Interpolated<'a>>;
 
+#[derive(Debug, Clone, Default)]
+pub struct ClientConfig {
+    headers: HashMap<String, Interpolated<'static>>,
+    redirect: Option<usize>,
+    timeout: Option<Option<Duration>>,
+    connect_timeout: Option<Option<Duration>>,
+    interface: Option<String>,
+}
+impl ClientConfig {
+    fn parse_headers(node: &KdlNode) -> miette::Result<HashMap<String, Interpolated<'static>>> {
+        let mut headers = HashMap::new();
+        for n in node.iter_children() {
+            let (_, value) = get_entry_string_named(n, 0, true, "header value")?
+                .context("Expected header value to be a string.")?;
+
+            headers.insert(
+                n.name().value().into(),
+                Interpolated::from(value).to_owned(),
+            );
+        }
+        Ok(headers)
+    }
+
+    fn new(children: &KdlDocument) -> miette::Result<Self> {
+        let headers = children
+            .get("headers")
+            .map(Self::parse_headers)
+            .transpose()?
+            .unwrap_or_default();
+
+        let redirect = if let Some(redirect) = children.get("redirect") {
+            let entry = expect_entry(
+                redirect,
+                "limit",
+                "Redirect must have a limit specified: redirect limit=5",
+            )?;
+
+            let Some(limit) = entry.value().as_integer() else {
+                bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Limit must be an integer"
+                }
+            };
+
+            if !(0..=64).contains(&limit) {
+                bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Limit must be in the range [0, 64]"
+                }
+            }
+
+            Some(limit as usize)
+        } else {
+            None
+        };
+
+        let timeout = if let Some(timeout) = children.get("timeout") {
+            let entry = expect_entry(
+                timeout,
+                0,
+                "Timeout expects a value: timeout <duration> OR timeout #false",
+            )?;
+
+            let duration = match entry.value() {
+                KdlValue::String(s) => Some(humantime::parse_duration(s).map_err(|e| {
+                    miette::miette! {
+                        labels = vec![entry.span().with_label("here")],
+                        "{}", e
+                    }
+                })?),
+                KdlValue::Bool(false) => None,
+                _ => bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Timeout must be a duration or #false."
+                },
+            };
+            Some(duration)
+        } else {
+            None
+        };
+
+        let connect_timeout = if let Some(connect_timeout) = children.get("connect-timeout") {
+            let entry = expect_entry(
+                connect_timeout,
+                0,
+                "Connect timeout expects a value: connect-timeout <duration> OR connect-timeout #false",
+            )?;
+
+            let duration = match entry.value() {
+                KdlValue::String(s) => Some(humantime::parse_duration(s).map_err(|e| {
+                    miette::miette! {
+                        labels = vec![entry.span().with_label("here")],
+                        "{}", e
+                    }
+                })?),
+                KdlValue::Bool(false) => None,
+                _ => bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Connect timeout must be a duration or #false."
+                },
+            };
+            Some(duration)
+        } else {
+            None
+        };
+
+        let interface = if let Some(iface) = children.get("interface") {
+            // from https://docs.rs/reqwest/latest/src/reqwest/blocking/client.rs.html#720-722
+            #[cfg(not(any(
+                target_os = "android",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "ios",
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "solaris",
+                target_os = "tvos",
+                target_os = "visionos",
+                target_os = "watchos",
+            )))]
+            {
+                crate::warn!("`interface` property ignored on this platform.");
+            }
+            let entry = expect_entry(iface, 0, "Interface expects a value: interface \"eth0\"")?;
+
+            let Some(iface) = entry.value().as_string() else {
+                bail! {
+                    labels = vec![entry.span().with_label("here")],
+                    "Interface name must be a string"
+                }
+            };
+
+            Some(iface.into())
+        } else {
+            None
+        };
+
+        Ok(ClientConfig {
+            headers,
+            redirect,
+            timeout,
+            connect_timeout,
+            interface,
+        })
+    }
+
+    fn make_client(&self, _vars: &HashMap<String, Interpolated<'_>>) -> miette::Result<Client> {
+        let mut builder = Client::builder();
+
+        if let Some(limit) = self.redirect {
+            if limit == 0 {
+                builder = builder.redirect(redirect::Policy::none());
+            } else {
+                builder = builder.redirect(redirect::Policy::limited(limit));
+            }
+        }
+
+        if let Some(timeout) = self.timeout {
+            builder = builder.timeout(timeout);
+        }
+
+        if let Some(connect_timeout) = self.connect_timeout {
+            builder = builder.connect_timeout(connect_timeout);
+        }
+
+        // from https://docs.rs/reqwest/latest/src/reqwest/blocking/client.rs.html#720-722
+        #[cfg(any(
+            target_os = "android",
+            target_os = "fuchsia",
+            target_os = "illumos",
+            target_os = "ios",
+            target_os = "linux",
+            target_os = "macos",
+            target_os = "solaris",
+            target_os = "tvos",
+            target_os = "visionos",
+            target_os = "watchos",
+        ))]
+        if let Some(interface) = &self.interface {
+            builder = builder.interface(interface);
+        }
+
+        let client = builder
+            .build()
+            .into_diagnostic()
+            .context("Building http client")?;
+
+        Ok(client)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Config {
     doc: KdlDocument,
     variables: HashMap<String, Variable>,
+    client: ClientConfig,
 }
 
 impl Config {
     pub fn parse(doc: KdlDocument) -> miette::Result<Self> {
         Ok(Self {
             variables: Self::parse_variables(&doc)?,
+            client: Self::parse_client(&doc)?,
             doc,
         })
     }
@@ -386,6 +605,21 @@ impl Config {
         }
 
         Ok(out)
+    }
+
+    fn parse_client(doc: &KdlDocument) -> miette::Result<ClientConfig> {
+        let Some(client) = doc.get("client") else {
+            return Ok(Default::default());
+        };
+
+        let Some(children) = client.children() else {
+            bail! {
+                labels = vec![client.span().with_label("here")],
+                "Client block must have children."
+            }
+        };
+
+        ClientConfig::new(children)
     }
 
     pub fn load_variables(
@@ -409,6 +643,10 @@ impl Config {
         self.variables.get(name)
     }
 
+    pub(crate) fn make_client(&self, vars: &Variables<'_>) -> miette::Result<Client> {
+        self.client.make_client(vars)
+    }
+
     pub fn get_query<'a>(&'a self, name: &str) -> miette::Result<Option<Query<'a>>> {
         let q = self
             .doc
@@ -419,7 +657,7 @@ impl Config {
             .get(name);
 
         if let Some(q) = q {
-            Query::from_node(q).map(Some)
+            Query::new(q, &self.client).map(Some)
         } else {
             Ok(None)
         }
