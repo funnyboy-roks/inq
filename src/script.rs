@@ -10,7 +10,10 @@ use reqwest::{
 };
 use rhai::{
     CustomType, Dynamic, Engine, EvalAltResult, ImmutableString, Position, Scope, TypeBuilder,
+    packages::Package,
 };
+use rhai_fs::FilesystemPackage;
+use rhai_rand::RandomPackage;
 
 use crate::{
     config::Config,
@@ -212,18 +215,22 @@ pub fn lookup_variable(
     }
 }
 
-pub fn script_engine(
-    state: Rc<RefCell<State>>,
-    config: Rc<Config>,
-    vars: Rc<HashMap<String, Interpolated<'static>>>,
-) -> (Engine, Scope<'static>) {
+pub fn base_engine() -> Engine {
     let mut engine = Engine::new();
 
+    // plugins
+    RandomPackage::new().register_into_engine(&mut engine);
+    FilesystemPackage::new().register_into_engine(&mut engine);
+
+    // custom types
     engine
         .build_type::<ScriptResponse>()
         .build_type::<Variables>()
         .build_type::<PersistedVariable>()
-        .build_type::<Headers>()
+        .build_type::<Headers>();
+
+    // cookie type
+    engine
         .register_fn("parse_cookie", |s: ImmutableString| {
             Cookie::from_str(&s).map_err(|e| {
                 Box::new(EvalAltResult::ErrorSystem(
@@ -239,6 +246,16 @@ pub fn script_engine(
                 .expires_datetime()
                 .map(|d| DateTime::from_timestamp(d.unix_timestamp(), 0).unwrap())
         });
+
+    engine
+}
+
+pub fn script_engine(
+    state: Rc<RefCell<State>>,
+    config: Rc<Config>,
+    vars: Rc<HashMap<String, Interpolated<'static>>>,
+) -> (Engine, Scope<'static>) {
+    let mut engine = base_engine();
 
     #[allow(deprecated, reason = "Volatile, but we need it")]
     engine.on_var({

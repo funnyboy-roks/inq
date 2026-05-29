@@ -4,7 +4,9 @@ use std::{
 };
 
 use miette::{LabeledSpan, SourceSpan};
-use rhai::{Dynamic, Engine, EvalAltResult};
+use rhai::{Dynamic, EvalAltResult};
+
+use crate::script::base_engine;
 
 pub const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
@@ -119,7 +121,8 @@ impl Interpolated<'_> {
                     return Err(miette::miette!("Recursive expansion detected in {:?}", s).into());
                 }
 
-                let mut engine = Engine::new();
+                let mut engine = base_engine();
+
                 let vars: HashMap<String, Interpolated<'static>> = vars
                     .iter()
                     .map(|(name, val)| (name.clone(), val.to_owned()))
