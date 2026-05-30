@@ -12,6 +12,7 @@ use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, Request},
+    header::{CONTENT_TYPE, HeaderValue},
     redirect,
 };
 use rhai::{AST, Engine};
@@ -187,7 +188,10 @@ impl<'a> Query<'a> {
             match body {
                 Body::Text(t) => {
                     let s = t.interpolate(vars)?;
-                    builder = builder.body(s.clone().into_owned());
+                    builder = builder.body(s.clone().into_owned()).header(
+                        CONTENT_TYPE,
+                        const { HeaderValue::from_static("text/plain; charset=utf-8") },
+                    );
                     Some(PopulatedBody::Text(s))
                 }
                 Body::Json { json, span } => {
