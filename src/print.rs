@@ -1,12 +1,12 @@
 use std::{fmt::Display, io::Write, time::Duration};
 
-use miette::IntoDiagnostic;
+use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
 
 use crate::{
     config::{self, PopulatedBody},
-    script::{ScriptBody, ScriptResponse},
+    script::{ContentType, ScriptResponse},
     state::PersistedVariable,
     util::DATETIME_FORMAT,
 };
@@ -99,7 +99,7 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
     Ok(())
 }
 
-pub fn print_response(res: &ScriptResponse, elapsed: Duration) -> miette::Result<()> {
+pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> miette::Result<()> {
     use owo_colors::OwoColorize as _;
 
     eprintln!("{}:", "Response Details".cyan());
@@ -136,18 +136,34 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration) -> miette::Result
     if let Some(content_len) = res.content_length
         && content_len != 0
     {
-        match &res.body {
-            ScriptBody::Text(t) => {
-                eprintln!("{}:", "Response Body (Raw)".cyan());
-                std::io::stdout()
-                    .write_all(t.as_bytes())
-                    .into_diagnostic()?;
-            }
-            ScriptBody::Json(json) => {
-                eprintln!("{}:", "Response Body (JSON)".cyan());
+        let encoding = match res.body.encoding() {
+            Some(e) => format!(" ({})", e),
+            None => "".into(),
+        };
+        let encoding = encoding.cyan();
+
+        match res.body.content_type() {
+            Some(ContentType::Json) if !raw => {
+                eprintln!("{}{}:", "Response Body (JSON)".cyan(), encoding);
+                let json = res.body.json().context("Parsing response body as json")?;
                 pretty_print_json(&mut anstream::stdout().lock(), json.clone(), 0)
                     .into_diagnostic()?;
                 println!();
+            }
+            Some(ContentType::Text) if !raw => {
+                eprintln!("{}{}:", "Response Body (Plaintext)".cyan(), encoding);
+                let text = res
+                    .body
+                    .text()
+                    .context("Parsing response body as plaintext")?;
+                println!("{}", text);
+            }
+            None | Some(_) => {
+                eprintln!("{}{}:", "Response Body (Raw)".cyan(), encoding);
+                std::io::stdout()
+                    .write_all(&res.body.bytes()?)
+                    .into_diagnostic()
+                    .context("Writing response body")?;
             }
         }
     }

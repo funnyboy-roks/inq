@@ -156,10 +156,10 @@ pub(crate) fn run(
 
     let start = Instant::now();
     let res = client.execute(req).into_diagnostic()?;
-    let res = ScriptResponse::from_response(res, query_cmd.raw)?;
+    let res = ScriptResponse::from_response(res)?;
     let elapsed = start.elapsed();
 
-    print_response(&res, elapsed)?;
+    print_response(&res, elapsed, query_cmd.raw)?;
 
     if let Some(post_script) = query.post_script {
         eprintln!(

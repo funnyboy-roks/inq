@@ -387,6 +387,7 @@ pub struct ClientConfig {
     connect_timeout: Option<Option<Duration>>,
     interface: Option<String>,
 }
+
 impl ClientConfig {
     fn parse_headers(node: &KdlNode) -> miette::Result<HashMap<String, Interpolated<'static>>> {
         let mut headers = HashMap::new();
