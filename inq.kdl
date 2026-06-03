@@ -9,9 +9,6 @@ variables {
 
 queries {
     login POST "${BASE_URL}/login" {
-        headers {
-            user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0"
-        }
         body json=#"""
         {
             "username": "${USER}",
@@ -29,9 +26,6 @@ queries {
     status GET "${BASE_URL}/status/${CODE}"
     status2 GET "https://httpbin.org/status/${CODE}"
     json POST "${BASE_URL}/json" {
-        headers {
-            user-agent "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.9; rv:50.0) Gecko/20100101 Firefox/50.0"
-        }
         body json=#"""
         {
             "first_name": "John",

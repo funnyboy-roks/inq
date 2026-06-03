@@ -25,7 +25,7 @@ use crate::{
         unique_node,
     },
     state::State,
-    util::{Interpolated, WithLabel},
+    util::{Interpolated, WithLabel, to_lowercase},
 };
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ pub struct Query<'a> {
     pub(crate) method: Method,
     pub(crate) url: Interpolated<'a>,
     pub(crate) body: Option<Body<'a>>,
-    pub(crate) headers: HashMap<&'a str, Interpolated<'a>>,
+    pub(crate) headers: HashMap<Cow<'a, str>, Interpolated<'a>>,
     pub post_script: Option<AST>,
 }
 
@@ -84,10 +84,10 @@ impl<'a> Query<'a> {
     fn parse_headers(
         node: &'a KdlNode,
         default_headers: &'a HashMap<String, Interpolated<'static>>,
-    ) -> miette::Result<HashMap<&'a str, Interpolated<'a>>> {
-        let mut headers: HashMap<&str, Interpolated<'_>> = default_headers
+    ) -> miette::Result<HashMap<Cow<'a, str>, Interpolated<'a>>> {
+        let mut headers: HashMap<Cow<'a, str>, Interpolated<'_>> = default_headers
             .iter()
-            .map(|(k, v)| (k.as_str(), v.clone()))
+            .map(|(k, v)| (k.as_str().into(), v.clone()))
             .collect();
         for n in node.iter_children() {
             let name = n.name().value();
@@ -106,7 +106,7 @@ impl<'a> Query<'a> {
             let (_, value) = get_entry_string_named(n, 0, true, "header value")?
                 .context("Expected header value to be a string.")?;
 
-            headers.insert(name, value.into());
+            headers.insert(to_lowercase(name), value.into());
         }
         Ok(headers)
     }
@@ -145,7 +145,7 @@ impl<'a> Query<'a> {
                 client_config
                     .headers
                     .iter()
-                    .map(|(k, v)| (k.as_str(), v.clone()))
+                    .map(|(k, v)| (k.as_str().into(), v.clone()))
                     .collect()
             });
 
@@ -223,8 +223,8 @@ impl<'a> Query<'a> {
             None
         };
 
-        for (&k, v) in &self.headers {
-            headers.remove(k);
+        for (k, v) in &self.headers {
+            headers.remove(&**k);
             let k = HeaderName::from_str(k).into_diagnostic()?;
             let v = HeaderValue::from_str(&v.interpolate(vars)?).into_diagnostic()?;
             headers.insert(k, v);
@@ -399,7 +399,7 @@ impl Variable {
 
 pub type Variables<'a> = HashMap<String, Interpolated<'a>>;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct ClientConfig {
     headers: HashMap<String, Interpolated<'static>>,
     redirect: Option<usize>,
@@ -408,28 +408,50 @@ pub struct ClientConfig {
     interface: Option<String>,
 }
 
+impl Default for ClientConfig {
+    fn default() -> Self {
+        Self {
+            headers: Self::default_headers(),
+            redirect: None,
+            timeout: None,
+            connect_timeout: None,
+            interface: None,
+        }
+    }
+}
+
 impl ClientConfig {
-    fn parse_headers(node: &KdlNode) -> miette::Result<HashMap<String, Interpolated<'static>>> {
-        let mut headers = HashMap::new();
+    fn default_headers() -> HashMap<String, Interpolated<'static>> {
+        HashMap::from_iter([(
+            "user-agent".into(),
+            Interpolated::from(concat!("inq/", env!("CARGO_PKG_VERSION"))),
+        )])
+    }
+
+    fn parse_headers(
+        node: &KdlNode,
+        headers: &mut HashMap<String, Interpolated<'static>>,
+    ) -> miette::Result<()> {
         for n in node.iter_children() {
             let (_, value) = get_entry_string_named(n, 0, true, "header value")?
                 .context("Expected header value to be a string.")?;
 
             headers.insert(
-                n.name().value().into(),
+                n.name().value().to_lowercase(),
                 Interpolated::from(value).to_owned(),
             );
         }
-        Ok(headers)
+        Ok(())
     }
 
     fn new(children: &KdlDocument) -> miette::Result<Self> {
-        let headers = unique_node(children, "headers")?
-            .map(Self::parse_headers)
-            .transpose()?
-            .unwrap_or_default();
+        let mut this = Self::default();
 
-        let redirect = if let Some(redirect) = unique_node(children, "redirect")? {
+        if let Some(headers) = unique_node(children, "headers")? {
+            Self::parse_headers(headers, &mut this.headers)?;
+        }
+
+        if let Some(redirect) = unique_node(children, "redirect")? {
             let entry = expect_entry(
                 redirect,
                 "limit",
@@ -450,12 +472,10 @@ impl ClientConfig {
                 }
             }
 
-            Some(limit as usize)
-        } else {
-            None
-        };
+            this.redirect = Some(limit as usize)
+        }
 
-        let timeout = if let Some(timeout) = unique_node(children, "timeout")? {
+        if let Some(timeout) = unique_node(children, "timeout")? {
             let entry = expect_entry(
                 timeout,
                 0,
@@ -475,14 +495,10 @@ impl ClientConfig {
                     "Timeout must be a duration or #false."
                 },
             };
-            Some(duration)
-        } else {
-            None
-        };
+            this.timeout = Some(duration)
+        }
 
-        let connect_timeout = if let Some(connect_timeout) =
-            unique_node(children, "connect-timeout")?
-        {
+        if let Some(connect_timeout) = unique_node(children, "connect-timeout")? {
             let entry = expect_entry(
                 connect_timeout,
                 0,
@@ -502,12 +518,10 @@ impl ClientConfig {
                     "Connect timeout must be a duration or #false."
                 },
             };
-            Some(duration)
-        } else {
-            None
-        };
+            this.connect_timeout = Some(duration)
+        }
 
-        let interface = if let Some(iface) = unique_node(children, "interface")? {
+        if let Some(iface) = unique_node(children, "interface")? {
             // from https://docs.rs/reqwest/latest/src/reqwest/blocking/client.rs.html#720-722
             #[cfg(not(any(
                 target_os = "android",
@@ -533,18 +547,10 @@ impl ClientConfig {
                 }
             };
 
-            Some(iface.into())
-        } else {
-            None
+            this.interface = Some(iface.into())
         };
 
-        Ok(ClientConfig {
-            headers,
-            redirect,
-            timeout,
-            connect_timeout,
-            interface,
-        })
+        Ok(this)
     }
 
     fn make_client(&self, _vars: &HashMap<String, Interpolated<'_>>) -> miette::Result<Client> {

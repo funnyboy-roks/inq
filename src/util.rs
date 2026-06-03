@@ -190,6 +190,14 @@ impl WithLabel for SourceSpan {
     }
 }
 
+pub fn to_lowercase(s: &str) -> Cow<'_, str> {
+    if s.chars().all(char::is_lowercase) {
+        Cow::Borrowed(s)
+    } else {
+        Cow::Owned(s.to_lowercase())
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::util::Interpolated;
