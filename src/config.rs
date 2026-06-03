@@ -12,7 +12,7 @@ use miette::{Context, IntoDiagnostic, SourceSpan, bail};
 use reqwest::{
     Method,
     blocking::{Client, Request},
-    header::{CONTENT_TYPE, HeaderValue},
+    header::{CONTENT_TYPE, HeaderMap, HeaderName, HeaderValue},
     redirect,
 };
 use rhai::{AST, Engine};
@@ -184,11 +184,15 @@ impl<'a> Query<'a> {
 
         let mut builder = client.request(self.method.clone(), &*url);
 
+        let mut headers = HeaderMap::new();
+
         let populated_body = if let Some(body) = &self.body {
             match body {
                 Body::Text(t) => {
                     let s = t.interpolate(vars)?;
-                    builder = builder.body(s.clone().into_owned()).header(
+                    builder = builder.body(s.clone().into_owned());
+                    headers.remove(CONTENT_TYPE);
+                    headers.insert(
                         CONTENT_TYPE,
                         const { HeaderValue::from_static("text/plain; charset=utf-8") },
                     );
@@ -196,6 +200,7 @@ impl<'a> Query<'a> {
                 }
                 Body::Json { json, span } => {
                     let interpolated = &json.interpolate(vars)?;
+                    // parse the json to ensure it's valid
                     let json = serde_json::Value::from_str(interpolated).map_err(|e| {
                         miette::miette! {
                             labels = vec![span.with_label("in this JSON")],
@@ -204,7 +209,13 @@ impl<'a> Query<'a> {
                         }
                     })?;
 
-                    builder = builder.json(&json);
+                    headers.remove(CONTENT_TYPE);
+                    headers.insert(
+                        CONTENT_TYPE,
+                        const { HeaderValue::from_static("application/json") },
+                    );
+
+                    builder = builder.body(interpolated.clone().into_owned());
                     Some(PopulatedBody::Json(json))
                 }
             }
@@ -213,8 +224,13 @@ impl<'a> Query<'a> {
         };
 
         for (&k, v) in &self.headers {
-            builder = builder.header(k, &*v.interpolate(vars)?);
+            headers.remove(k);
+            let k = HeaderName::from_str(k).into_diagnostic()?;
+            let v = HeaderValue::from_str(&v.interpolate(vars)?).into_diagnostic()?;
+            headers.insert(k, v);
         }
+
+        builder = builder.headers(headers);
 
         Ok((builder.build().into_diagnostic()?, populated_body))
     }
