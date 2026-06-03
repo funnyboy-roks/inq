@@ -133,9 +133,7 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
         }
     }
 
-    if let Some(content_len) = res.content_length
-        && content_len != 0
-    {
+    if !res.body.is_empty() {
         let encoding = match res.body.encoding() {
             Some(e) => format!(" ({})", e),
             None => "".into(),
