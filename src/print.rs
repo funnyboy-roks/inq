@@ -5,7 +5,7 @@ use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
 
 use crate::{
-    config::{self, PopulatedBody},
+    config::PopulatedBody,
     script::{ContentType, ScriptResponse},
     state::PersistedVariable,
     util::DATETIME_FORMAT,
@@ -81,15 +81,22 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
 
     if let Some(req_body) = body {
         match req_body {
-            config::PopulatedBody::Json(value) => {
+            PopulatedBody::Json(value) => {
                 eprintln!("{}:", "Request Body (JSON)".cyan());
                 pretty_print_json(&mut anstream::stderr().lock(), value, 0).into_diagnostic()?;
                 eprintln!();
             }
-            config::PopulatedBody::Text(cow) => {
+            PopulatedBody::Text(text) => {
                 eprintln!("{}:", "Request Body (Raw)".cyan());
 
-                eprintln!("{}", cow);
+                eprintln!("{}", text);
+            }
+            PopulatedBody::File(path) => {
+                eprintln!(
+                    "{}: {}",
+                    "Request Body (File)".cyan(),
+                    path.display().yellow()
+                );
             }
         }
     }

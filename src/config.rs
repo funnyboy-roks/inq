@@ -1,7 +1,7 @@
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    path::PathBuf,
+    path::{Path, PathBuf},
     str::FromStr,
     time::Duration,
 };
@@ -26,6 +26,7 @@ use crate::{
     },
     state::State,
     util::{Interpolated, WithLabel, to_lowercase},
+    warn,
 };
 
 #[derive(Debug, Clone)]
@@ -35,12 +36,17 @@ pub enum Body<'a> {
         json: Interpolated<'a>,
         span: SourceSpan,
     },
+    File {
+        path: Interpolated<'a>,
+        span: SourceSpan,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub enum PopulatedBody<'a> {
     Text(Cow<'a, str>),
     Json(JsonValue),
+    File(PathBuf),
 }
 
 #[derive(Debug, Clone)]
@@ -120,14 +126,17 @@ impl<'a> Query<'a> {
         };
 
         let body = if let Some(body_node) = unique_node(children, "body")? {
-            match get_one_of(body_node, "body", ["text", "json"])? {
+            match get_one_of(body_node, "body", ["text", "json", "file"])? {
                 Some(("text", _, text)) => Some(Body::Text(text.into())),
+                Some(("file", e, path)) => Some(Body::File {
+                    path: path.into(),
+                    span: e.span(),
+                }),
                 Some(("json", e, json)) => Some(Body::Json {
                     json: json.into(),
                     span: e.span(),
                 }),
-                v => {
-                    dbg!(v);
+                _ => {
                     return Err(miette::miette! {
                         labels = vec![body_node.span().with_label("here")],
                         "Malformed `body` node",
@@ -217,6 +226,37 @@ impl<'a> Query<'a> {
 
                     builder = builder.body(interpolated.clone().into_owned());
                     Some(PopulatedBody::Json(json))
+                }
+                Body::File { path, span } => {
+                    let path = path.interpolate(vars)?;
+                    let path = Path::new(&*path);
+
+                    let content = std::fs::read(path).map_err(|e| {
+                        miette::miette! {
+                            labels = vec![span.with_label("This path")],
+                            "Unable to read {}: {}",
+                            path.display(), e
+                        }
+                    })?;
+
+                    if let Some(mime) = mime_guess::from_path(path).first() {
+                        headers.remove(CONTENT_TYPE);
+                        headers.insert(
+                            CONTENT_TYPE,
+                            HeaderValue::from_str(mime.essence_str())
+                                .into_diagnostic()
+                                .with_context(|| {
+                                    format!("Converting '{}' into header value", mime)
+                                })?,
+                        );
+                    } else {
+                        if !self.headers.contains_key("content-type") {
+                            warn!("Unable to guess Content-Type and Content-Type not set manually.")
+                        }
+                    };
+
+                    builder = builder.body(content);
+                    Some(PopulatedBody::File(path.into()))
                 }
             }
         } else {
