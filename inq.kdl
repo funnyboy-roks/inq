@@ -23,6 +23,9 @@ queries {
         vars.COOKIE.expires_at = cookie.expires_at;
         """#
     }
+    file POST "${BASE_URL}/echo" {
+        body file="password"
+    }
     status GET "${BASE_URL}/status/${CODE}"
     status2 GET "https://httpbin.org/status/${CODE}"
     json POST "${BASE_URL}/json" {
