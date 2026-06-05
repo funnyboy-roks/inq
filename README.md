@@ -3,6 +3,20 @@
 A tool for executing API queries defined in a plaintext file that can be
 checked in to version control or managed like any other file.
 
+## Install
+
+There are a few ways to install:
+
+- Download binary from the [releases](https://github.com/funnyboy-roks/inq/releases/latest)
+- Use [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+  ```
+  cargo binstall inq
+  ```
+- Use cargo install:
+  ```
+  cargo install inq
+  ```
+
 The basic workflow goes like this:
 
 1. Create the configuration file with `variables` and `queries`
