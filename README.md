@@ -12,6 +12,20 @@ The basic workflow goes like this:
 1. Specify queries and the details that should be use for the requests
 1. Run any query using `inq query <query>`
 
+## Install
+
+There are a few ways to install:
+
+- Download binary from the [releases](https://github.com/funnyboy-roks/inq/releases/latest)
+- Use [cargo-binstall](https://github.com/cargo-bins/cargo-binstall):
+  ```
+  cargo binstall inq
+  ```
+- Use cargo install:
+  ```
+  cargo install inq
+  ```
+
 ## Configuration
 
 The configuration uses the [kdl](https://kdl.dev) format.
