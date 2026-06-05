@@ -6,6 +6,7 @@ use std::{
     time::Duration,
 };
 
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Utc;
 use kdl::{KdlDocument, KdlNode, KdlValue};
 use miette::{Context, IntoDiagnostic, SourceSpan, bail};
@@ -40,6 +41,7 @@ pub enum Body<'a> {
         path: Interpolated<'a>,
         span: SourceSpan,
     },
+    Raw(Vec<u8>),
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +49,7 @@ pub enum PopulatedBody<'a> {
     Text(Cow<'a, str>),
     Json(JsonValue),
     File(PathBuf),
+    Raw(&'a [u8]),
 }
 
 #[derive(Debug, Clone)]
@@ -126,7 +129,7 @@ impl<'a> Query<'a> {
         };
 
         let body = if let Some(body_node) = unique_node(children, "body")? {
-            match get_one_of(body_node, "body", ["text", "json", "file"])? {
+            match get_one_of(body_node, "body", ["text", "json", "file", "raw"])? {
                 Some(("text", _, text)) => Some(Body::Text(text.into())),
                 Some(("file", e, path)) => Some(Body::File {
                     path: path.into(),
@@ -136,11 +139,50 @@ impl<'a> Query<'a> {
                     json: json.into(),
                     span: e.span(),
                 }),
+                Some(("raw", e, encoded)) => {
+                    let Some(ty) = e.ty() else {
+                        bail! {
+                            labels = vec![body_node.span().with_label("here")],
+                            "Value type must be specified for raw body.",
+                        }
+                    };
+
+                    if ty.value() == "base64" {
+                        let content = match BASE64_STANDARD.decode(encoded) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                bail! {
+                                    labels = vec![body_node.span().with_label("here")],
+                                    "Invalid base64 string: {}",
+                                    e
+                                }
+                            }
+                        };
+                        Some(Body::Raw(content))
+                    } else if ty.value() == "hex" {
+                        let content = match hex::decode(encoded) {
+                            Ok(c) => c,
+                            Err(e) => {
+                                bail! {
+                                    labels = vec![body_node.span().with_label("here")],
+                                    "Invalid hex string: {}",
+                                    e
+                                }
+                            }
+                        };
+                        Some(Body::Raw(content))
+                    } else {
+                        bail! {
+                            labels = vec![body_node.span().with_label("here")],
+                            "Raw body value type may be one of: 'base64'",
+                        }
+                    }
+                }
                 _ => {
-                    return Err(miette::miette! {
+                    bail! {
                         labels = vec![body_node.span().with_label("here")],
                         "Malformed `body` node",
-                    });
+                    }
                 }
             }
         } else {
@@ -185,7 +227,7 @@ impl<'a> Query<'a> {
     }
 
     pub(crate) fn to_request(
-        &self,
+        &'a self,
         client: &Client,
         vars: &Variables<'a>,
     ) -> miette::Result<(Request, Option<PopulatedBody<'a>>)> {
@@ -226,6 +268,16 @@ impl<'a> Query<'a> {
 
                     builder = builder.body(interpolated.clone().into_owned());
                     Some(PopulatedBody::Json(json))
+                }
+                Body::Raw(content) => {
+                    headers.remove(CONTENT_TYPE);
+                    headers.insert(
+                        CONTENT_TYPE,
+                        const { HeaderValue::from_static("application/octet-stream") },
+                    );
+
+                    builder = builder.body(content.clone());
+                    Some(PopulatedBody::Raw(&*content))
                 }
                 Body::File { path, span } => {
                     let path = path.interpolate(vars)?;

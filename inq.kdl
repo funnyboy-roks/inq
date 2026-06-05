@@ -26,6 +26,9 @@ queries {
     file POST "${BASE_URL}/echo" {
         body file="password"
     }
+    raw POST "${BASE_URL}/echo" {
+        body raw=(base64)"eAFLzs/NzSxRMDI2YSgpSk1VSEmzNEszNElMsTS1tEw1TzI2TUoxtDS3tEw1MDIysTBKNjOwTEoySOMqSCxKzStRSDNKNU5NTUpMNDUwNTU2Sk01SzY1sLAwMrMwMjYysEg1NzC1MDAwSuRKLC3JyC9SSCvNy6tMyq/ULcrPLlawSUsqckhLKtJLSS2zUzA0tzAwMTM1NLZQ0DUwNTDggjiuJJU4bSYwbVzFqSUKGamJKalFxQrlmSUZ+aUlCimlBTmZyYklmXnpXADmH0q9"
+    }
     status GET "${BASE_URL}/status/${CODE}"
     status2 GET "https://httpbin.org/status/${CODE}"
     json POST "${BASE_URL}/json" {
