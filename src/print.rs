@@ -1,5 +1,6 @@
 use std::{fmt::Display, io::Write, time::Duration};
 
+use base64::Engine;
 use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
@@ -10,6 +11,16 @@ use crate::{
     state::PersistedVariable,
     util::DATETIME_FORMAT,
 };
+
+#[macro_export]
+macro_rules! warn {
+    ($($tt: tt)*) => {{
+        use owo_colors::OwoColorize as _;
+
+        eprint!("{}: ", "WARNING".yellow().bold());
+        eprintln!($($tt)*);
+    }};
+}
 
 fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std::io::Result<()> {
     use owo_colors::OwoColorize as _;
@@ -87,7 +98,7 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
                 eprintln!();
             }
             PopulatedBody::Text(text) => {
-                eprintln!("{}:", "Request Body (Raw)".cyan());
+                eprintln!("{}:", "Request Body (Text)".cyan());
 
                 eprintln!("{}", text);
             }
@@ -97,6 +108,14 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
                     "Request Body (File)".cyan(),
                     path.display().yellow()
                 );
+            }
+            PopulatedBody::Raw(raw) => {
+                eprintln!("{}:", "Request Body (Raw)".cyan());
+                if let Ok(s) = str::from_utf8(raw) {
+                    eprintln!("{}", s);
+                } else {
+                    eprintln!("{}", base64::engine::general_purpose::STANDARD.encode(raw));
+                }
             }
         }
     }
@@ -165,10 +184,17 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
             }
             None | Some(_) => {
                 eprintln!("{}{}:", "Response Body (Raw)".cyan(), encoding);
-                std::io::stdout()
-                    .write_all(&res.body.bytes()?)
-                    .into_diagnostic()
-                    .context("Writing response body")?;
+                let bytes = res.body.bytes()?;
+                if str::from_utf8(&bytes).is_ok() || raw {
+                    std::io::stdout()
+                        .write_all(&res.body.bytes()?)
+                        .into_diagnostic()
+                        .context("Writing response body")?;
+                } else {
+                    warn!(
+                        "Binary output can mess up your terminal.  Use --raw to force inq to show the response body."
+                    );
+                }
             }
         }
     }
@@ -201,14 +227,4 @@ pub fn print_variable(v: &PersistedVariable, indent: bool) {
     } else {
         eprintln!("{} Never", "Expires:".blue());
     }
-}
-
-#[macro_export]
-macro_rules! warn {
-    ($($tt: tt)*) => {{
-        use owo_colors::OwoColorize as _;
-
-        eprint!("{}: ", "WARNING".yellow().bold());
-        eprintln!($($tt)*);
-    }};
 }
