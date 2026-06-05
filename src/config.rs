@@ -277,7 +277,7 @@ impl<'a> Query<'a> {
                     );
 
                     builder = builder.body(content.clone());
-                    Some(PopulatedBody::Raw(&*content))
+                    Some(PopulatedBody::Raw(content))
                 }
                 Body::File { path, span } => {
                     let path = path.interpolate(vars)?;
