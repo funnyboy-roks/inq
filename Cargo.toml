@@ -1,9 +1,12 @@
 [package]
 name = "inq"
+version = "0.1.0"
 description = "A tool for executing API queries defined in a plaintext file that can be checked in to version control or managed like any other file."
-license = "Apache-2.0"
+authors = ["funnyboy_roks <fbr@fbr.dev>"]
+keywords = ["api", "api-client", "rest", "web-dev"]
+categories = ["web-programming::http-client", "development-tools", "development-tools::debugging", "development-tools::testing"]
 repository = "https://github.com/funnyboy_roks/inq"
-version = "0.0.1"
+license = "Apache-2.0"
 edition = "2024"
 rust-version = "1.95"
 
