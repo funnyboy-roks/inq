@@ -26,6 +26,9 @@ queries {
     file POST "${BASE_URL}/echo" {
         body file="password"
     }
+    raw POST "${BASE_URL}/echo" {
+        body raw=(hex)"dGhocyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRm"
+    }
     status GET "${BASE_URL}/status/${CODE}"
     status2 GET "https://httpbin.org/status/${CODE}"
     json POST "${BASE_URL}/json" {
