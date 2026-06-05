@@ -3,6 +3,15 @@
 A tool for executing API queries defined in a plaintext file that can be
 checked in to version control or managed like any other file.
 
+The basic workflow goes like this:
+
+1. Create the configuration file with `variables` and `queries`
+   sections
+1. Populate the `variables` with values that you wish to use throughout
+   the queries
+1. Specify queries and the details that should be use for the requests
+1. Run any query using `inq query <query>`
+
 ## Install
 
 There are a few ways to install:
@@ -16,15 +25,6 @@ There are a few ways to install:
   ```
   cargo install inq
   ```
-
-The basic workflow goes like this:
-
-1. Create the configuration file with `variables` and `queries`
-   sections
-1. Populate the `variables` with values that you wish to use throughout
-   the queries
-1. Specify queries and the details that should be use for the requests
-1. Run any query using `inq query <query>`
 
 ## Configuration
 
