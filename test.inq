@@ -1,0 +1,4 @@
+route foo/bar/baz => GET "/foo"
+    before {
+        let x = a == b || c == d;
+    }
