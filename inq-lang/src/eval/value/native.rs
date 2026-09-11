@@ -1,6 +1,7 @@
 use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
 
-use crate::lang::{
+use crate::{
+    Span,
     eval::{
         EvalError, EvalResult,
         registry::{BinOp, PrefixOp, Registry, UnaryOp, VarArgs},
@@ -8,13 +9,10 @@ use crate::lang::{
     },
     parse::Ident,
     string::IStr,
-    util::Span,
 };
 
 use super::{Value, ValueRef};
 
-pub type Int = i64;
-pub type Float = f64;
 #[derive(Clone, Debug)]
 pub struct Null;
 impl From<()> for Null {
@@ -57,6 +55,7 @@ fn to_string_radix(mut n: i64, radix: i64) -> IStr {
     s.into()
 }
 
+pub type Int = i64;
 impl Value for Int {
     fn type_name() -> Cow<'static, str> {
         "Int".into()
@@ -115,6 +114,7 @@ impl Value for Int {
     }
 }
 
+pub type Float = f64;
 impl Value for Float {
     fn type_name() -> Cow<'static, str> {
         "Float".into()
@@ -336,8 +336,8 @@ impl Value for Array {
     }
 }
 
-#[derive(Debug)]
-pub(crate) struct Object(pub BTreeMap<IStr, ValueRef>);
+#[derive(Debug, Clone)]
+pub struct Object(pub BTreeMap<IStr, ValueRef>);
 impl Value for Object {
     fn type_name() -> Cow<'static, str>
     where
@@ -430,7 +430,7 @@ fn normalise_index(i: i64, len: usize, span: Span) -> EvalResult<usize> {
 mod test {
     use std::assert_matches;
 
-    use crate::lang::{eval::value::native::normalise_index, util::Span};
+    use crate::{Span, eval::value::native::normalise_index};
 
     #[test]
     fn norm_index() {

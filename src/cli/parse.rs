@@ -1,23 +1,23 @@
 use std::{cell::RefCell, rc::Rc, string::String};
 
+use inq_lang::{
+    IStr,
+    eval::{
+        Engine, EvalError, EvalResult,
+        registry::FunctionValue,
+        value::{
+            CallContext, ValueRef,
+            native::{Array, Float, Int, Null, Object},
+        },
+    },
+    lex::Lexer,
+    parse::{Item, Parser, Variable},
+};
 use miette::{IntoDiagnostic, NamedSource};
 
 use crate::{
     cli::{Cli, ParseCommand},
     config::Config,
-    lang::{
-        eval::{
-            Engine, EvalError, EvalResult,
-            registry::FunctionValue,
-            value::{
-                CallContext, ValueRef,
-                native::{Array, Float, Int, Null, Object},
-            },
-        },
-        lex::Lexer,
-        parse::Parser,
-        string::IStr,
-    },
     state::State,
 };
 
@@ -60,7 +60,7 @@ fn json(ctx: &CallContext, arg: ValueRef, out: &mut String) -> EvalResult<()> {
     } else {
         return Err(EvalError::Custom {
             message: format!("Invalid type for JSON: {}", arg.type_name_of()),
-            span: ctx.span,
+            span: ctx.span(),
         });
     }
     Ok(())
@@ -119,17 +119,29 @@ pub(crate) fn run(
 
     let engine = make_engine()?;
 
-    let mut v = ValueRef::null();
-    while let Some(e) = parser.take_expr().map_err(|e| {
+    let mut items = Vec::new();
+    while let Some(item) = parser.take_item().map_err(|e| {
         miette::Report::from(e).with_source_code(NamedSource::new(&file_name, content.to_string()))
     })? {
-        v = engine.global().eval(e).map_err(|e| {
-            miette::Report::from(e)
-                .with_source_code(NamedSource::new(&file_name, content.to_string()))
-        })?;
+        items.push(item);
     }
 
-    dbg!(v);
+    for i in items {
+        match i {
+            Item::Variable(Variable { name, .. }) => eprintln!("Var({})", name),
+            Item::Route(route) => {
+                eprintln!(
+                    "Route({} => {} {:?})",
+                    route.name,
+                    route.method,
+                    engine.global().eval(route.endpoint).map_err(|e| {
+                        miette::Report::from(e)
+                            .with_source_code(NamedSource::new(&file_name, content.to_string()))
+                    })?
+                )
+            }
+        }
+    }
 
     Ok(())
 }
@@ -139,7 +151,7 @@ mod test {
     use miette::NamedSource;
 
     use super::make_engine;
-    use crate::lang::{lex::Lexer, parse::Parser, string::IStr};
+    use inq_lang::{IStr, lex::Lexer, parse::Parser};
 
     macro_rules! eval {
         ($engine: expr, $($tt: tt)*) => {{

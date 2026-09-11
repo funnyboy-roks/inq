@@ -7,13 +7,13 @@ use std::{
     rc::Rc,
 };
 
-use crate::lang::{
+use crate::{
+    Span,
     eval::{registry::Registry, value::native::Null},
-    util::Span,
 };
 
 /// Native types
-pub(crate) mod native;
+pub mod native;
 
 #[derive(Clone)]
 pub struct ValueRef(Rc<RefCell<dyn Value>>);
@@ -31,31 +31,31 @@ impl Debug for ValueRef {
 }
 
 impl ValueRef {
-    pub(crate) fn new(value: impl Value) -> Self {
+    pub fn new(value: impl Value) -> Self {
         Self(Rc::new(RefCell::new(value)))
     }
 
-    pub(crate) fn null() -> Self {
+    pub fn null() -> Self {
         thread_local! {
             static NULL: OnceCell<ValueRef> = const { OnceCell::new() };
         }
         NULL.with(|null| null.get_or_init(|| Self::new(Null)).clone())
     }
 
-    pub(crate) fn type_id(&self) -> TypeId {
+    pub fn type_id(&self) -> TypeId {
         let b = self.0.borrow();
         (&*b as &dyn Any).type_id()
     }
 
-    pub(crate) fn type_name_of(&self) -> Cow<'static, str> {
+    pub fn type_name_of(&self) -> Cow<'static, str> {
         self.borrow().type_name_of()
     }
 
-    pub(crate) fn downcast<T: Value + Clone>(&self) -> Option<T> {
+    pub fn downcast<T: Value + Clone>(&self) -> Option<T> {
         self.borrow().downcast_ref().cloned()
     }
 
-    pub(crate) fn is<T: Value>(&self) -> bool {
+    pub fn is<T: Value>(&self) -> bool {
         self.borrow().is::<T>()
     }
 }
@@ -69,17 +69,14 @@ impl Deref for ValueRef {
 }
 
 #[derive(Clone, Debug)]
-pub struct CallContext<T = ()> {
+pub struct CallContext {
     pub(crate) span: Span,
-    pub(crate) inner: T,
     pub(crate) self_ref: ValueRef,
 }
 
-impl<T> Deref for CallContext<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
+impl CallContext {
+    pub fn span(&self) -> Span {
+        self.span
     }
 }
 
@@ -97,15 +94,15 @@ pub trait Value: Any + Debug {
 }
 
 impl dyn Value {
-    pub(crate) fn is<T: Any>(&self) -> bool {
+    pub fn is<T: Any>(&self) -> bool {
         self.type_id() == TypeId::of::<T>()
     }
 
-    pub(crate) fn downcast_ref<T: Value>(&self) -> Option<&T> {
+    pub fn downcast_ref<T: Value>(&self) -> Option<&T> {
         (self as &dyn Any).downcast_ref()
     }
 
-    pub(crate) fn downcast_mut<T: Value>(&mut self) -> Option<&mut T> {
+    pub fn downcast_mut<T: Value>(&mut self) -> Option<&mut T> {
         (self as &mut dyn Any).downcast_mut()
     }
 }

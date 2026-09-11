@@ -11,7 +11,6 @@ use crate::{
 mod cli;
 mod config;
 mod decode;
-mod lang;
 mod parse;
 mod print;
 mod script;

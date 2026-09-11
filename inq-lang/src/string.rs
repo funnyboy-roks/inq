@@ -115,7 +115,7 @@ impl Borrow<str> for IStr {
 
 #[cfg(test)]
 mod test {
-    use crate::lang::string::{IStr, STRINGS};
+    use super::{IStr, STRINGS};
 
     #[test]
     fn global() {

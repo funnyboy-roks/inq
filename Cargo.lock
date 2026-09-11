@@ -947,24 +947,32 @@ dependencies = [
  "chrono-humanize",
  "clap",
  "cookie",
- "derive_more",
  "futures-util",
  "fuzzt",
  "hex",
  "humantime",
+ "inq-lang",
  "kdl",
  "miette",
  "mime_guess",
  "owo-colors",
- "phf",
  "reqwest",
  "rhai",
  "rhai-fs",
  "rhai-rand",
  "serde",
  "serde_json",
- "thiserror 2.0.20",
  "tokio",
+]
+
+[[package]]
+name = "inq-lang"
+version = "0.1.0"
+dependencies = [
+ "derive_more",
+ "miette",
+ "phf",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

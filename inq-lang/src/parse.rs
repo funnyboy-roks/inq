@@ -3,11 +3,12 @@ use std::fmt::Display;
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
 
-use crate::lang::{
+use crate::{
+    Span,
     expr::Expr,
     lex::{AnyMethod, LexError, Lexer, Lit, Method, TokenKind, TokenStream, TokenTree},
     string::IStr,
-    util::{DisplayList, Span},
+    util::DisplayList,
 };
 
 use super::lex::{GroupDelim, Keyword, Punct, TokenTreeInner};
@@ -328,6 +329,18 @@ impl Parse for Attribute {
 #[derive(Debug, Clone)]
 pub struct Path(Vec<Ident>);
 
+impl Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (i, s) in self.0.iter().enumerate() {
+            if i > 0 {
+                write!(f, "/")?;
+            }
+            write!(f, "{}", s)?;
+        }
+        Ok(())
+    }
+}
+
 impl Parse for Path {
     fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
         let mut path = Vec::new();
@@ -343,19 +356,19 @@ impl Parse for Path {
 }
 
 #[derive(Clone, Debug)]
-struct RouteArg {
-    name: Ident,
-    default_value: Option<Expr>,
+pub struct RouteArg {
+    pub name: Ident,
+    pub default_value: Option<Expr>,
 }
 
 #[derive(Debug, Clone)]
 pub struct Route {
-    name: Path,
-    args: Vec<RouteArg>,
-    method: Method,
-    endpoint: StringExpr,
-    before: Option<Block>,
-    after: Option<Block>,
+    pub name: Path,
+    pub args: Vec<RouteArg>,
+    pub method: Method,
+    pub endpoint: Expr,
+    pub before: Option<Block>,
+    pub after: Option<Block>,
 }
 
 impl Parse for Route {
@@ -381,7 +394,7 @@ impl Parse for Route {
             unreachable!()
         };
 
-        let endpoint: StringExpr = tokens.parse()?;
+        let endpoint: Expr = tokens.parse()?;
 
         let mut la = tokens.lookahead();
         let (before, after) = if la.peek(Punct::Semicolon) {
@@ -451,12 +464,30 @@ impl Route {
 }
 
 #[derive(Clone, Debug)]
+pub struct Variable {
+    pub name: Ident,
+    pub value: Expr,
+    pub attributes: Vec<Attribute>,
+}
+
+impl Parse for Variable {
+    fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
+        tokens.expect(Keyword::Let)?;
+        let name = tokens.parse()?;
+        let _eq = tokens.expect(Punct::Eq)?;
+        let value: Expr = tokens.parse()?;
+        let _semi = tokens.expect(Punct::Semicolon)?;
+        Ok(Self {
+            name,
+            value,
+            attributes: Default::default(),
+        })
+    }
+}
+
+#[derive(Clone, Debug)]
 pub enum Item {
-    Variable {
-        name: Ident,
-        value: Expr,
-        attributes: Vec<Attribute>,
-    },
+    Variable(Variable),
     Route(Route),
 }
 
@@ -483,19 +514,12 @@ impl Parser {
         let mut la = self.tokens.lookahead();
 
         let item = if la.peek(Keyword::Let) {
-            self.tokens.expect(Keyword::Let)?;
-            let name = self.tokens.parse()?;
-            let _eq = self.tokens.expect(Punct::Eq)?;
-            let value: Expr = self.tokens.parse()?;
-            let _semi = self.tokens.expect(Punct::Semicolon)?;
-            Item::Variable {
-                name,
-                value,
+            Item::Variable(Variable {
                 attributes,
-            }
+                ..self.tokens.parse()?
+            })
         } else if la.peek(Keyword::Route) {
-            let route = self.tokens.parse()?;
-            Item::Route(route)
+            Item::Route(self.tokens.parse()?)
         } else if la.peek(Punct::Hash) {
             self.tokens.expect(Punct::Hash)?;
 

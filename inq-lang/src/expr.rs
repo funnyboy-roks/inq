@@ -1,7 +1,7 @@
-use crate::lang::{
+use crate::{
+    Span,
     lex::{self, GroupDelim, Keyword, LitKind, Punct, TokenKind, TokenStream, TokenTree},
     parse::{Block, Ident, Parse, ParseError, StringExpr},
-    util::Span,
 };
 
 use super::lex::TokenTreeInner;
@@ -487,6 +487,8 @@ impl Expr {
                 || la.peek(Punct::Semicolon)
                 || la.peek(Keyword::Then)
                 || la.peek(Keyword::Else)
+                || la.peek(Keyword::Before)
+                || la.peek(Keyword::After)
             {
                 break;
             } else if la.peek(GroupDelim::Paren)

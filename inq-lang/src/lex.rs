@@ -8,7 +8,7 @@ use miette::Diagnostic;
 use phf::phf_map;
 use thiserror::Error;
 
-use crate::lang::{string::IStr, util::Span};
+use crate::{IStr, Span};
 
 pub trait TokenKind {
     fn matches(&self, tt: &TokenTree) -> bool;
@@ -140,7 +140,8 @@ impl TokenKind for AnyMethod {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, derive_more::Display)]
+#[display("{}", self.as_str())]
 pub enum Method {
     Get,
     Head,
@@ -150,6 +151,21 @@ pub enum Method {
     Options,
     Trace,
     Patch,
+}
+
+impl Method {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Method::Get => "GET",
+            Method::Head => "HEAD",
+            Method::Post => "POST",
+            Method::Put => "PUT",
+            Method::Delete => "DELETE",
+            Method::Options => "OPTIONS",
+            Method::Trace => "TRACE",
+            Method::Patch => "PATCH",
+        }
+    }
 }
 
 impl TokenKind for Method {
@@ -415,13 +431,13 @@ pub enum LexError {
     },
 }
 
-pub(crate) struct Lexer<'a> {
+pub struct Lexer<'a> {
     content: &'a str,
     position: usize,
 }
 
 impl<'a> Lexer<'a> {
-    pub(crate) fn new(content: &'a str) -> Self {
+    pub fn new(content: &'a str) -> Self {
         Lexer {
             content,
             position: 0,

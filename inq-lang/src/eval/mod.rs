@@ -8,13 +8,14 @@ use std::{
 };
 
 pub(crate) mod lazy;
-pub(crate) mod registry;
-pub(crate) mod value;
+pub mod registry;
+pub mod value;
 
 use miette::Diagnostic;
 use thiserror::Error;
 
-use crate::lang::{
+use crate::{
+    IStr, Span,
     eval::{
         lazy::LazyValueRef,
         registry::{AnyRegistry, BinOp, DynMethod, Field, Indexer, Registry, UnaryOp, VarArgs},
@@ -25,8 +26,7 @@ use crate::lang::{
     },
     expr::{Ast, CmpOp, Expr},
     parse::{Ident, StringExpr},
-    string::IStr,
-    util::{DisplayVec, Span},
+    util::DisplayVec,
 };
 
 use super::expr::{InfixOp, Lit, ObjectField};
@@ -211,7 +211,7 @@ impl Engine {
         }
     }
 
-    pub(crate) fn global(self: &Rc<Self>) -> Rc<Scope> {
+    pub fn global(self: &Rc<Self>) -> Rc<Scope> {
         self.global
             .get_or_init({
                 let this = self.clone();
@@ -317,7 +317,7 @@ impl Scope {
     }
 
     /// Returns true if the variable already existed in the current scope
-    pub(crate) fn set_variable<V>(&self, name: impl Into<IStr>, value: V, declare: bool) -> bool
+    pub fn set_variable<V>(&self, name: impl Into<IStr>, value: V, declare: bool) -> bool
     where
         V: Value,
     {
@@ -356,7 +356,7 @@ impl Scope {
 
 /// Evaluation
 impl Scope {
-    pub(crate) fn eval(self: &Rc<Self>, expr: Expr) -> EvalResult<ValueRef> {
+    pub fn eval(self: &Rc<Self>, expr: Expr) -> EvalResult<ValueRef> {
         match expr.ast {
             Ast::String(string_expr) => Ok(self.eval_string(string_expr)?.into()),
             Ast::Lit(lit) => match lit {
@@ -386,8 +386,8 @@ impl Scope {
             } => {
                 let operand = self.eval(*operand)?;
                 let op = match op {
-                    crate::lang::expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
-                    crate::lang::expr::PrefixOp::Not => {
+                    crate::expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
+                    crate::expr::PrefixOp::Not => {
                         return Ok(operand.borrow().truthy().not().into());
                     }
                 };
@@ -401,7 +401,6 @@ impl Scope {
                 };
                 unary_op.apply(CallContext {
                     span: op_span,
-                    inner: (),
                     self_ref: operand,
                 })
             }
@@ -440,7 +439,6 @@ impl Scope {
                                 value,
                                 CallContext {
                                     span: name.span,
-                                    inner: (),
                                     self_ref: obj,
                                 },
                             )?;
@@ -465,7 +463,6 @@ impl Scope {
                                 rhs,
                                 CallContext {
                                     span,
-                                    inner: (),
                                     self_ref: value.clone(),
                                 },
                             )?;
@@ -558,7 +555,6 @@ impl Scope {
                     rhs,
                     CallContext {
                         span: op_span,
-                        inner: (),
                         self_ref: lhs,
                     },
                 )
@@ -599,7 +595,6 @@ impl Scope {
                 let getter = &self.engine.get_field(&value, value_span, &field)?.getter;
                 getter.get(CallContext {
                     span,
-                    inner: (),
                     self_ref: value,
                 })
             }
@@ -622,7 +617,6 @@ impl Scope {
                     VarArgs::new(eval_args),
                     CallContext {
                         span,
-                        inner: (),
                         self_ref: value,
                     },
                 )
@@ -636,7 +630,6 @@ impl Scope {
                     index,
                     CallContext {
                         span,
-                        inner: (),
                         self_ref: value.clone(),
                     },
                 )
@@ -653,7 +646,6 @@ impl Scope {
                         VarArgs::new(eval_args),
                         CallContext {
                             span,
-                            inner: (),
                             self_ref: func.clone(),
                         },
                     )

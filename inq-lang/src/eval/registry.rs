@@ -3,7 +3,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::lang::eval::{
+use crate::eval::{
     DisplayVec, EvalError, EvalResult,
     value::{CallContext, Value, ValueRef},
 };
@@ -449,7 +449,7 @@ pub trait CmpFunction {
 }
 
 #[derive(derive_more::Debug, Clone)]
-pub(crate) struct FunctionValue(#[debug(skip)] pub Rc<dyn Function>);
+pub struct FunctionValue(#[debug(skip)] pub Rc<dyn Function>);
 
 impl FunctionValue {
     pub fn new<V, R>(func: fn(CallContext, V) -> R) -> Self

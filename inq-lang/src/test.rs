@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use miette::NamedSource;
 
-use crate::lang::{
+use crate::{
     eval::{Engine, Scope, value::ValueRef},
     lex::Lexer,
     parse::Parser,
