@@ -85,7 +85,11 @@ pub enum EvalError {
         #[label]
         ident: Ident,
     },
-    #[error("Invalid argments, expected {}, got {}", DisplayVec(&expected), DisplayVec(&got))]
+    #[error(
+        "Invalid argments, expected {}, got {}",
+        DisplayVec(expected),
+        DisplayVec(got)
+    )]
     InvalidArgs {
         #[label = "this call"]
         span: Span,
@@ -563,11 +567,7 @@ impl Scope {
                     },
                 )
             }
-            Ast::PostfixOp {
-                op,
-                op_span,
-                operand,
-            } => {
+            Ast::PostfixOp { op, operand, .. } => {
                 let span = operand.span;
                 let operand = self.eval(*operand)?;
                 match op {

@@ -171,7 +171,7 @@ impl PostfixOp {
 }
 
 #[derive(Clone, Debug, derive_more::Display)]
-pub(crate) enum ObjectField {
+pub enum ObjectField {
     /// `{ foo }`
     #[display("{_0}")]
     Ident(Ident),

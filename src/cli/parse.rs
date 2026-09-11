@@ -11,7 +11,7 @@ use inq_lang::{
         },
     },
     lex::Lexer,
-    parse::{Attribute, Ident, Item, Parser, Variable},
+    parse::{Attribute, Ident, Item, Parser},
 };
 use miette::{IntoDiagnostic, NamedSource};
 
@@ -73,7 +73,7 @@ fn env(s: &IStr) -> ValueRef {
         .unwrap_or_else(ValueRef::null)
 }
 
-fn make_engine() -> miette::Result<Rc<Engine>> {
+fn make_engine() -> Rc<Engine> {
     let engine = Engine::new();
     let global = engine.global();
 
@@ -99,14 +99,24 @@ fn make_engine() -> miette::Result<Rc<Engine>> {
         true,
     );
 
-    Ok(engine)
+    engine
 }
 
-#[derive(Default, Debug)]
+#[derive(Debug)]
 struct Config {
     routes: Vec<inq_lang::parse::Route>,
     persisted_vars: Vec<Ident>,
     engine: Rc<Engine>,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            routes: Default::default(),
+            persisted_vars: Default::default(),
+            engine: make_engine(),
+        }
+    }
 }
 
 pub(crate) fn run(
@@ -182,7 +192,7 @@ mod test {
     fn valid_json() {
         macro_rules! json {
             ($inq: tt) => {{
-                let e = make_engine().unwrap();
+                let e = make_engine();
                 eval!(e, json($inq))
             }};
         }

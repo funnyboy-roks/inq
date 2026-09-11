@@ -8,7 +8,7 @@ use crate::{
     expr::Expr,
     lex::{AnyMethod, LexError, Lexer, Lit, Method, TokenKind, TokenStream, TokenTree},
     string::IStr,
-    util::{DisplayList, DisplayVec},
+    util::{DisplayList, DisplayVec, OptionDisplay},
 };
 
 use super::lex::{GroupDelim, Keyword, Punct, TokenTreeInner};
@@ -231,12 +231,17 @@ pub struct StringExpr {
 impl Display for StringExpr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut last = 0;
+        write!(f, "\"")?;
         for e in &self.interpolations {
-            write!(f, "{:?}", &self.value[last..e.index])?;
+            write!(f, "{}", &self.value[last..e.index])?;
             write!(f, "${{{}}}", e.expr)?;
             last = e.index;
         }
-        write!(f, "{:?}", &self.value[last..])
+        if !self.value[last..].is_empty() {
+            write!(f, "{:?}", &self.value[last..])?;
+        }
+        write!(f, "\"")?;
+        Ok(())
     }
 }
 
@@ -374,13 +379,16 @@ pub struct RouteArg {
     pub default_value: Option<Expr>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(derive_more::Debug, Clone)]
 pub struct Route {
     pub name: Path,
     pub args: Vec<RouteArg>,
     pub method: Method,
+    #[debug("{}", endpoint)]
     pub endpoint: Expr,
+    #[debug("{}", OptionDisplay(before))]
     pub before: Option<Block>,
+    #[debug("{}", OptionDisplay(before))]
     pub after: Option<Block>,
 }
 

@@ -39,3 +39,15 @@ impl<T: Display> Display for DisplayVec<'_, T> {
         write!(f, "]")
     }
 }
+
+#[derive(Clone, Debug)]
+pub(crate) struct OptionDisplay<'a, T>(pub &'a Option<T>);
+impl<T: Display> Display for OptionDisplay<'_, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(t) = self.0 {
+            write!(f, "Some({})", t)
+        } else {
+            write!(f, "None")
+        }
+    }
+}

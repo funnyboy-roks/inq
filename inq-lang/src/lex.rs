@@ -318,10 +318,6 @@ pub(crate) struct TokenStream {
 }
 
 impl TokenStream {
-    pub fn new(inner: VecDeque<TokenTree>, span: Span) -> Self {
-        Self { inner, span }
-    }
-
     fn single(tt: TokenTree) -> TokenStream {
         TokenStream {
             span: tt.span,
@@ -365,7 +361,7 @@ impl TokenStream {
 }
 
 #[derive(Clone, Debug)]
-pub enum TokenTreeInner {
+pub(crate) enum TokenTreeInner {
     Group {
         delim: GroupDelim,
         tokens: TokenStream,
