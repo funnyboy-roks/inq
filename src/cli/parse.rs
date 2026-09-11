@@ -11,13 +11,12 @@ use inq_lang::{
         },
     },
     lex::Lexer,
-    parse::{Item, Parser, Variable},
+    parse::{Attribute, Ident, Item, Parser, Variable},
 };
 use miette::{IntoDiagnostic, NamedSource};
 
 use crate::{
     cli::{Cli, ParseCommand},
-    config::Config,
     state::State,
 };
 
@@ -103,10 +102,17 @@ fn make_engine() -> miette::Result<Rc<Engine>> {
     Ok(engine)
 }
 
+#[derive(Default, Debug)]
+struct Config {
+    routes: Vec<inq_lang::parse::Route>,
+    persisted_vars: Vec<Ident>,
+    engine: Rc<Engine>,
+}
+
 pub(crate) fn run(
     _cli: &Cli,
     cmd: &ParseCommand,
-    _config: Config,
+    _config: crate::config::Config,
     _state: Rc<RefCell<State>>,
 ) -> miette::Result<()> {
     let file_name = cmd.file.file_name().unwrap().to_string_lossy();
@@ -117,31 +123,22 @@ pub(crate) fn run(
         miette::Report::from(e).with_source_code(NamedSource::new(&file_name, content.to_string()))
     })?;
 
-    let engine = make_engine()?;
-
-    let mut items = Vec::new();
+    let mut config = Config::default();
     while let Some(item) = parser.take_item().map_err(|e| {
         miette::Report::from(e).with_source_code(NamedSource::new(&file_name, content.to_string()))
     })? {
-        items.push(item);
-    }
-
-    for i in items {
-        match i {
-            Item::Variable(Variable { name, .. }) => eprintln!("Var({})", name),
-            Item::Route(route) => {
-                eprintln!(
-                    "Route({} => {} {:?})",
-                    route.name,
-                    route.method,
-                    engine.global().eval(route.endpoint).map_err(|e| {
-                        miette::Report::from(e)
-                            .with_source_code(NamedSource::new(&file_name, content.to_string()))
-                    })?
-                )
+        match item {
+            Item::Variable(v) => {
+                if v.attributes.contains(&Attribute::Persist) {
+                    config.persisted_vars.push(v.name.clone());
+                }
+                config.engine.global().add_variable(v);
             }
+            Item::Route(r) => config.routes.push(r),
         }
     }
+
+    dbg!(config);
 
     Ok(())
 }

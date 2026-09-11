@@ -2,6 +2,7 @@ use crate::{
     Span,
     lex::{self, GroupDelim, Keyword, LitKind, Punct, TokenKind, TokenStream, TokenTree},
     parse::{Block, Ident, Parse, ParseError, StringExpr},
+    util::DisplayVec,
 };
 
 use super::lex::TokenTreeInner;
@@ -34,17 +35,23 @@ impl TokenKind for Identifier {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 pub enum Lit {
+    #[display("{_0}")]
     Int(u64),
+    #[display("{_0}")]
     Float(f64),
+    #[display("{_0}")]
     Bool(bool),
+    #[display("null")]
     Null,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 pub enum PrefixOp {
+    #[display("-")]
     Neg,
+    #[display("!")]
     Not,
 }
 
@@ -64,31 +71,45 @@ impl PrefixOp {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, derive_more::Display)]
 pub enum CmpOp {
     /// `<`
+    #[display("<")]
     Lt,
     /// `<=`
+    #[display("<=")]
     Lte,
     /// `>`
+    #[display(">")]
     Gt,
     /// `>=`
+    #[display(">=")]
     Gte,
     /// `==`
+    #[display("==")]
     Eq,
     /// `!=`
+    #[display("!=")]
     NotEq,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, derive_more::Display)]
 pub enum InfixOp {
+    #[display("=")]
     Assign,
+    #[display("||")]
     Or,
+    #[display("&&")]
     And,
+    #[display("{_0}")]
     Cmp(CmpOp),
+    #[display("+")]
     Add,
+    #[display("-")]
     Sub,
+    #[display("*")]
     Mul,
+    #[display("/")]
     Div,
 }
 
@@ -129,8 +150,9 @@ impl InfixOp {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 pub enum PostfixOp {
+    #[display("!")]
     AssertNotNull,
 }
 
@@ -148,76 +170,89 @@ impl PostfixOp {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub(crate) enum ObjectField {
     /// `{ foo }`
+    #[display("{_0}")]
     Ident(Ident),
     /// `{ foo: 1 + 2 }`
+    #[display("{_0}: {_1}")]
     IdentWithValue(Ident, Expr),
     /// `{ "foo": 1 + 2 }`
+    #[display("{_0}: {_1}")]
     String(StringExpr, Expr),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, derive_more::Display)]
 pub enum Ast {
+    #[display("{_0}")]
     String(StringExpr),
+    #[display("{_0}")]
     Lit(Lit),
+    #[display("{_0}")]
     Block(Block),
+    #[display("{_0}")]
     Variable(Ident),
+    #[display("request")]
     Request,
+    #[display("response")]
     Response,
+    #[display("{}{}", op, operand)]
     PrefixOp {
         op: PrefixOp,
         op_span: Span,
         operand: Box<Expr>,
     },
+    #[display("({} {} {})", operands.0, op, operands.1)]
     InfixOp {
         op: InfixOp,
         op_span: Span,
         operands: Box<(Expr, Expr)>,
     },
+    #[display("{}{}", operand, op)]
     PostfixOp {
         op: PostfixOp,
         op_span: Span,
         operand: Box<Expr>,
     },
+    #[display("let {} = {}", var, if let Some(value) = value { format!("Some({})", value) } else { "None".into() })]
     Declare {
         var: Ident,
         value: Option<Box<Expr>>,
     },
-    FieldAccess {
-        value: Box<Expr>,
-        field: Ident,
-    },
+    #[display("{}.{}", value, field)]
+    FieldAccess { value: Box<Expr>, field: Ident },
+    #[display("{}.{}({})", value, method, DisplayVec(args))]
     MethodCall {
         value: Box<Expr>,
         method: Ident,
         args: Vec<Expr>,
     },
-    Index {
-        value: Box<Expr>,
-        index: Box<Expr>,
-    },
+    #[display("{}[{}]", value, index)]
+    Index { value: Box<Expr>, index: Box<Expr> },
+    #[display("{}({})", func, DisplayVec(args))]
     FunctionCall {
         func: Box<Expr>,
         args: Vec<Expr>,
         span: Span,
     },
+    #[display("if {} {{ {} }}{}", condition, then, if let Some(elze) = elze { format!(" else {{ {} }}", elze) } else { "".into() })]
     If {
         condition: Box<Expr>,
         then: Box<Expr>,
         elze: Option<Box<Expr>>,
     },
-    ArrayLiteral {
-        items: Vec<Expr>,
-    },
+    #[display("{}", DisplayVec(items))]
+    ArrayLiteral { items: Vec<Expr> },
+    #[display("{}", DisplayVec(fields))]
     ObjectLiteral {
         // ident: Ident,
         fields: Vec<ObjectField>,
     },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("{}", ast)]
 pub struct Expr {
     pub(crate) ast: Ast,
     pub(crate) span: Span,

@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::eval::{
-    DisplayVec, EvalError, EvalResult,
+    EvalError, EvalResult,
     value::{CallContext, Value, ValueRef},
 };
 
@@ -84,8 +84,8 @@ impl VarArgs {
     ) -> EvalResult<T> {
         Err(EvalError::InvalidArgs {
             span: ctx.span,
-            got: DisplayVec(self.inner.iter().map(|a| a.type_name_of().into()).collect()),
-            expected: DisplayVec(expected.into_iter().map(Into::into).collect()),
+            got: self.inner.iter().map(|a| a.type_name_of().into()).collect(),
+            expected: expected.into_iter().map(Into::into).collect(),
         })
     }
 }

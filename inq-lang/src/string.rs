@@ -7,8 +7,9 @@ thread_local! {
 }
 
 /// Interned String
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[derive(derive_more::Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
 #[display("{}", _0)]
+#[debug("{:?}", _0)]
 pub struct IStr(Arc<str>);
 
 impl IStr {
@@ -92,6 +93,12 @@ impl From<&IStr> for String {
 impl From<&str> for IStr {
     fn from(value: &str) -> Self {
         Self::new(value)
+    }
+}
+
+impl From<&IStr> for IStr {
+    fn from(value: &IStr) -> Self {
+        value.clone()
     }
 }
 

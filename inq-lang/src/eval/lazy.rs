@@ -8,9 +8,10 @@ use crate::{
     expr::Expr,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone, derive_more::Debug)]
 enum LazyValueRefInner {
     Resolved(ValueRef),
+    #[debug("Pending({})", expr.clone().unwrap())]
     Pending {
         /// Snapshot of the scope at the time the variable was set
         scope_snapshot: Rc<Scope>,

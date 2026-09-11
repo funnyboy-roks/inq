@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{collections::HashSet, fmt::Display};
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
@@ -8,7 +8,7 @@ use crate::{
     expr::Expr,
     lex::{AnyMethod, LexError, Lexer, Lit, Method, TokenKind, TokenStream, TokenTree},
     string::IStr,
-    util::DisplayList,
+    util::{DisplayList, DisplayVec},
 };
 
 use super::lex::{GroupDelim, Keyword, Punct, TokenTreeInner};
@@ -21,15 +21,15 @@ pub enum ParseError {
         span: Span,
         found: TokenTree,
     },
-    #[error("Expected {expected}. found {found}")]
+    #[error("Expected {}. found {}", DisplayList(expected), found)]
     UnexpectedTokenExpected {
         #[label = "here"]
         span: Span,
         found: TokenTree,
-        expected: DisplayList<String>,
+        expected: Vec<String>,
     },
-    #[error("Expected {expected}. found EOF")]
-    UnexpectedEof { expected: DisplayList<String> },
+    #[error("Expected {}. found EOF", DisplayList(expected))]
+    UnexpectedEof { expected: Vec<String> },
     #[error("Attributes must be a single identifier")]
     InvalidAttribute {
         #[label = "here"]
@@ -46,7 +46,7 @@ pub enum ParseError {
 impl ParseError {
     pub fn unexpected_eof(expected: impl IntoIterator<Item = impl Into<String>>) -> Self {
         Self::UnexpectedEof {
-            expected: DisplayList(expected.into_iter().map(Into::into).collect::<Vec<_>>()),
+            expected: expected.into_iter().map(Into::into).collect::<Vec<_>>(),
         }
     }
     pub fn unexpected_token(
@@ -63,7 +63,7 @@ impl ParseError {
             Self::UnexpectedTokenExpected {
                 span: token.span,
                 found: token.clone(),
-                expected: DisplayList(expected),
+                expected,
             }
         }
     }
@@ -228,6 +228,18 @@ pub struct StringExpr {
     pub(crate) interpolations: Vec<Interpolation>,
 }
 
+impl Display for StringExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut last = 0;
+        for e in &self.interpolations {
+            write!(f, "{:?}", &self.value[last..e.index])?;
+            write!(f, "${{{}}}", e.expr)?;
+            last = e.index;
+        }
+        write!(f, "{:?}", &self.value[last..])
+    }
+}
+
 impl Parse for StringExpr {
     fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
         let (span, value, interpolations) =
@@ -255,7 +267,8 @@ impl Parse for StringExpr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, derive_more::Display)]
+#[display("{}", DisplayVec(exprs))]
 pub struct Block {
     pub(crate) exprs: Vec<Expr>,
     /// Whether the last expression should be evaluated as a return statement
@@ -299,7 +312,7 @@ impl Parse for Block {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Attribute {
     Persist,
 }
@@ -467,7 +480,7 @@ impl Route {
 pub struct Variable {
     pub name: Ident,
     pub value: Expr,
-    pub attributes: Vec<Attribute>,
+    pub attributes: HashSet<Attribute>,
 }
 
 impl Parse for Variable {
@@ -505,7 +518,7 @@ impl Parser {
 
     pub fn take_item_inner(
         &mut self,
-        mut attributes: Vec<Attribute>,
+        mut attributes: HashSet<Attribute>,
     ) -> Result<Option<Item>, ParseError> {
         if self.tokens.is_empty() {
             return Ok(None);
@@ -525,7 +538,7 @@ impl Parser {
 
             let mut attr = self.tokens.expect_group(GroupDelim::Bracket)?;
 
-            attributes.push(attr.parse()?);
+            attributes.insert(attr.parse()?);
 
             let Some(item) = self.take_item_inner(attributes)? else {
                 return Err(ParseError::unexpected_eof(["Item"]));
@@ -539,7 +552,7 @@ impl Parser {
     }
 
     pub fn take_item(&mut self) -> Result<Option<Item>, ParseError> {
-        self.take_item_inner(Vec::new())
+        self.take_item_inner(Default::default())
     }
 
     pub fn take_expr(&mut self) -> Result<Option<Expr>, ParseError> {

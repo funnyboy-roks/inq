@@ -25,7 +25,7 @@ use crate::{
         },
     },
     expr::{Ast, CmpOp, Expr},
-    parse::{Ident, StringExpr},
+    parse::{Ident, StringExpr, Variable},
     util::DisplayVec,
 };
 
@@ -85,12 +85,12 @@ pub enum EvalError {
         #[label]
         ident: Ident,
     },
-    #[error("Invalid argments, expected {}, got {}", expected, got)]
+    #[error("Invalid argments, expected {}, got {}", DisplayVec(&expected), DisplayVec(&got))]
     InvalidArgs {
         #[label = "this call"]
         span: Span,
-        got: DisplayVec<String>,
-        expected: DisplayVec<String>,
+        got: Vec<String>,
+        expected: Vec<String>,
     },
     #[error("Invalid left-hand side of assignment operator.  ")]
     InvalidAssignment {
@@ -323,6 +323,10 @@ impl Scope {
     {
         self.engine.register_type::<V>();
         self.set_variable_by_ref(name, ValueRef::new(value), declare)
+    }
+
+    pub fn add_variable(&self, var: Variable) {
+        self.set_variable_by_ref(var.name.inner, LazyValueRef::lazy(self, var.value), true);
     }
 
     /// Returns true if the variable already existed
