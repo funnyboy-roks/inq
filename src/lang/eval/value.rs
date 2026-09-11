@@ -50,6 +50,14 @@ impl ValueRef {
     pub(crate) fn type_name_of(&self) -> Cow<'static, str> {
         self.borrow().type_name_of()
     }
+
+    pub(crate) fn downcast<T: Value + Clone>(&self) -> Option<T> {
+        self.borrow().downcast_ref().cloned()
+    }
+
+    pub(crate) fn is<T: Value>(&self) -> bool {
+        self.borrow().is::<T>()
+    }
 }
 
 impl Deref for ValueRef {

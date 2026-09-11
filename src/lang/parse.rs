@@ -184,6 +184,12 @@ impl Ident {
     }
 }
 
+impl AsRef<IStr> for Ident {
+    fn as_ref(&self) -> &IStr {
+        &self.inner
+    }
+}
+
 impl Parse for Ident {
     fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
         match tokens.next() {

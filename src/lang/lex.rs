@@ -102,6 +102,11 @@ impl_punct! {
     Arrow     => "=>" (op: true  )
     EqEq      => "==" (op: true  )
     Eq        => "="  (op: true  )
+    LtEq      => "<=" (op: true  )
+    Lt        => "<"  (op: true  )
+    GtEq      => ">=" (op: true  )
+    Gt        => ">"  (op: true  )
+    BangEq    => "!=" (op: true  )
     Semicolon => ";"  (op: false )
     PipePipe  => "||" (op: true  )
     AndAnd    => "&&" (op: true  )
@@ -260,8 +265,8 @@ pub(crate) enum Lit {
         value: IStr,
         interpolations: Vec<Interpolation>,
     },
-    IntLit(u64),
-    FloatLit(f64),
+    Int(u64),
+    Float(f64),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,8 +281,8 @@ impl TokenKind for LitKind {
         matches!(
             (&tt.inner, self),
             (TokenTreeInner::Literal(Lit::String { .. }), Self::String)
-                | (TokenTreeInner::Literal(Lit::IntLit(_)), Self::Int)
-                | (TokenTreeInner::Literal(Lit::FloatLit(_)), Self::Float)
+                | (TokenTreeInner::Literal(Lit::Int(_)), Self::Int)
+                | (TokenTreeInner::Literal(Lit::Float(_)), Self::Float)
         )
     }
 
@@ -364,8 +369,8 @@ impl Display for TokenTreeInner {
             TokenTreeInner::Keyword(kw) => write!(f, "Keyword {}", kw),
             TokenTreeInner::Literal(lit) => match lit {
                 Lit::String { .. } => write!(f, "String literal"),
-                Lit::IntLit(_) => write!(f, "Integer literal"),
-                Lit::FloatLit(_) => write!(f, "Float literal"),
+                Lit::Int(_) => write!(f, "Integer literal"),
+                Lit::Float(_) => write!(f, "Float literal"),
             },
         }
     }
@@ -531,9 +536,9 @@ impl<'a> Lexer<'a> {
 
         let ident = &self.content[start..self.position];
         let n = if is_float {
-            Lit::FloatLit(ident.parse::<f64>()?)
+            Lit::Float(ident.parse::<f64>()?)
         } else {
-            Lit::IntLit(ident.parse::<u64>()?)
+            Lit::Int(ident.parse::<u64>()?)
         };
         Ok(TokenTreeInner::Literal(n))
     }

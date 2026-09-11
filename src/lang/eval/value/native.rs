@@ -1,4 +1,4 @@
-use std::{borrow::Cow, collections::HashMap, sync::Arc};
+use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
 
 use crate::lang::{
     eval::{
@@ -29,7 +29,7 @@ impl From<()> for ValueRef {
     }
 }
 
-fn to_string_radix(mut n: i64, radix: i64) -> EvalResult<String> {
+fn to_string_radix(mut n: i64, radix: i64) -> IStr {
     debug_assert!((2..=36).contains(&radix));
 
     let mut s = String::new();
@@ -54,7 +54,7 @@ fn to_string_radix(mut n: i64, radix: i64) -> EvalResult<String> {
         }
     }
 
-    Ok(s)
+    s.into()
 }
 
 impl Value for Int {
@@ -78,7 +78,9 @@ impl Value for Int {
     {
         registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Self| lhs + rhs);
         registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Float| lhs as Float + rhs);
-        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &String| format!("{}{}", lhs, rhs));
+        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &IStr| {
+            IStr::from(format!("{}{}", lhs, rhs))
+        });
 
         registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Self| lhs - rhs);
         registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Float| lhs as Float - rhs);
@@ -92,16 +94,20 @@ impl Value for Int {
 
         registry.register_unary_op(UnaryOp::Prefix(PrefixOp::Neg), |_, &i| -i);
 
-        registry.register_method::<fn(_, &mut _, &i64) -> _>(
+        registry.register_cmp(|l, r| l.partial_cmp(r));
+        registry.register_cmp(|l, r| (*l as Float).partial_cmp(r));
+
+        registry.register_method::<fn(_, &mut _, _) -> _>(
             "to_string",
-            |ctx, &mut this, &radix| {
+            |ctx, &mut this, radix: Option<i64>| {
+                let radix = radix.unwrap_or(10.into());
                 if !(2..=36).contains(&radix) {
                     return Err(EvalError::Custom {
                         message: format!("radix must be in range [2, 36], got {}", radix),
                         span: ctx.span,
                     });
                 }
-                to_string_radix(this, radix)
+                Ok(to_string_radix(this, radix))
             },
         );
 
@@ -130,7 +136,9 @@ impl Value for Float {
     {
         registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Self| lhs + rhs);
         registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Int| lhs + rhs as Float);
-        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &String| format!("{}{}", lhs, rhs));
+        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &IStr| {
+            IStr::from(format!("{}{}", lhs, rhs))
+        });
 
         registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Self| lhs - rhs);
         registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Int| lhs - rhs as Float);
@@ -143,6 +151,8 @@ impl Value for Float {
         registry.register_bin_op(BinOp::Div, |&lhs, &rhs: &Int| lhs / rhs as Float);
 
         registry.register_unary_op(UnaryOp::Prefix(PrefixOp::Neg), |_, &i| -i);
+
+        registry.register_cmp(|l, r| l.partial_cmp(r));
 
         macro_rules! proxy {
             ($($fun: ident)*) => {
@@ -170,7 +180,7 @@ impl Value for bool {
         *self
     }
 
-    fn register(registry: &mut Registry<Self>)
+    fn register(_: &mut Registry<Self>)
     where
         Self: Sized,
     {
@@ -195,10 +205,11 @@ impl Value for Null {
     where
         Self: Sized,
     {
+        registry.register_cmp(|&Null, v: &ValueRef| v.downcast::<Null>().map(|_| Ordering::Equal));
     }
 }
 
-impl Value for String {
+impl Value for IStr {
     fn type_name() -> Cow<'static, str> {
         "String".into()
     }
@@ -217,19 +228,21 @@ impl Value for String {
         Self: Sized,
     {
         registry.register_method::<fn(&mut _) -> _>("len", |s| s.len() as i64);
-        registry.register_method::<fn(&mut _, &String) -> _>("split", |this, delim| {
-            this.split(delim)
-                .map(String::from)
+        registry.register_method::<fn(&mut _, IStr) -> _>("split", |this, delim| {
+            this.split(delim.as_str())
+                .map(IStr::from)
                 .map(ValueRef::from)
                 .collect::<Vec<_>>()
         });
-        registry.register_method::<fn(&mut _, &_, &_) -> _>(
+        registry.register_method::<fn(&mut _, _) -> _>(
             "replace",
-            |this, needle: &String, replacement: &String| this.replace(needle, replacement),
+            |this, (needle, replacement): (IStr, IStr)| -> IStr {
+                this.as_str().replace(needle.as_str(), &replacement).into()
+            },
         );
-        registry.register_method::<fn(_, &mut _, &_, &_) -> _>(
+        registry.register_method::<fn(_, &mut _, _) -> _>(
             "substring",
-            |ctx, this, &start: &i64, &end: &i64| {
+            |ctx, this, (start, end): (i64, i64)| {
                 let nstart = if start < 0 {
                     this.len() as i64 + start
                 } else {
@@ -254,20 +267,22 @@ impl Value for String {
                     });
                 }
 
-                Ok(String::from(&this[start as usize..end as usize]))
+                Ok(IStr::from(&this[start as usize..end as usize]))
             },
         );
         registry.register_method::<fn(&mut _) -> _>("chars", |this| {
             this.chars()
-                .map(String::from)
+                .map(IStr::from)
                 .map(ValueRef::from)
-                .collect::<Vec<_>>()
+                .collect::<Array>()
         });
 
-        registry.register_bin_op(BinOp::Add, |lhs: &Self, rhs: &ValueRef| {
-            let mut out = lhs.clone();
+        registry.register_cmp(|lhs, rhs: &IStr| lhs.partial_cmp(rhs));
+
+        registry.register_bin_op(BinOp::Add, |lhs, rhs: &ValueRef| {
+            let mut out = String::from(lhs);
             rhs.borrow().to_string(&mut out);
-            out
+            IStr::from(out)
         });
     }
 }
@@ -322,7 +337,7 @@ impl Value for Array {
 }
 
 #[derive(Debug)]
-pub(crate) struct Object(pub HashMap<IStr, ValueRef>);
+pub(crate) struct Object(pub BTreeMap<IStr, ValueRef>);
 impl Value for Object {
     fn type_name() -> Cow<'static, str>
     where
@@ -365,23 +380,15 @@ impl Value for Object {
         Self: Sized,
     {
         registry.register_index_get_set(
-            |ctx, this, idx: &String| {
-                this.0
-                    .get(&**idx)
-                    .ok_or_else(|| EvalError::IndexNotFounc {
-                        index: idx.clone(),
-                        span: ctx.span,
-                    })
-                    .cloned()
-            },
-            |_, this, idx: &String, value| {
+            |_, this, idx: &IStr| this.0.get(&**idx).cloned().unwrap_or_else(ValueRef::null),
+            |_, this, idx: &IStr, value| {
                 this.0.insert((&**idx).into(), value);
             },
         );
     }
 }
 
-impl Value for fn(&String) -> ValueRef {
+impl Value for fn(&IStr) -> ValueRef {
     fn type_name() -> Cow<'static, str>
     where
         Self: Sized,
@@ -402,7 +409,7 @@ impl Value for fn(&String) -> ValueRef {
     where
         Self: Sized,
     {
-        registry.register_call::<fn(&mut _, &String) -> _>(|this, s| this(s));
+        registry.register_call::<fn(&mut _, IStr) -> _>(|this, s| this(&s));
     }
 }
 

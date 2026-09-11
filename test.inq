@@ -1,4 +1,4 @@
-route foo/bar/baz => GET "/foo"
-    before {
-        let x = a == b || c == d;
-    }
+let x = 5;
+print(x);
+if x == 5 then let x = 3;
+print(x);

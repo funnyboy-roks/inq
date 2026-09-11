@@ -65,12 +65,27 @@ impl PrefixOp {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CmpOp {
+    /// `<`
+    Lt,
+    /// `<=`
+    Lte,
+    /// `>`
+    Gt,
+    /// `>=`
+    Gte,
+    /// `==`
+    Eq,
+    /// `!=`
+    NotEq,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InfixOp {
     Assign,
-    Equality,
     Or,
     And,
-    // Cmp(Cmp)
+    Cmp(CmpOp),
     Add,
     Sub,
     Mul,
@@ -81,10 +96,12 @@ impl InfixOp {
     fn from_tt(op: &TokenTree) -> Option<Self> {
         match op.inner {
             TokenTreeInner::Punct(Punct::Eq) => Some(Self::Assign),
-            TokenTreeInner::Punct(Punct::EqEq) => Some(Self::Equality),
-            // TokenTreeInner::Punct(
-            //     Punct::EqEq | Punct::Lt | Punct::Lte | Punct::Gte | Punct::Gt,
-            // ) => Some((2, 3)),
+            TokenTreeInner::Punct(Punct::EqEq) => Some(Self::Cmp(CmpOp::Eq)),
+            TokenTreeInner::Punct(Punct::BangEq) => Some(Self::Cmp(CmpOp::NotEq)),
+            TokenTreeInner::Punct(Punct::Lt) => Some(Self::Cmp(CmpOp::Lt)),
+            TokenTreeInner::Punct(Punct::LtEq) => Some(Self::Cmp(CmpOp::Lte)),
+            TokenTreeInner::Punct(Punct::Gt) => Some(Self::Cmp(CmpOp::Gt)),
+            TokenTreeInner::Punct(Punct::GtEq) => Some(Self::Cmp(CmpOp::Gte)),
             // TokenTreeInner::Punct(Punct::DotDot | Punct::DotDotEq) => Some((4, 5)),
             TokenTreeInner::Punct(Punct::Plus) => Some(Self::Add),
             TokenTreeInner::Punct(Punct::Minus) => Some(Self::Sub),
@@ -101,7 +118,7 @@ impl InfixOp {
             InfixOp::Assign => (0, 1),
             InfixOp::Or => (2, 3),
             InfixOp::And => (4, 5),
-            InfixOp::Equality => (6, 7),
+            InfixOp::Cmp(_) => (6, 7),
             // TokenTree::Punct(Punct::EqEq | Punct::Lt | Punct::Lte | Punct::Gte | Punct::Gt) => {
             //     Some((4, 5))
             // }
@@ -312,7 +329,7 @@ impl Expr {
             }
         } else if la.peek(LitKind::Int) {
             let t = tokens.expect(LitKind::Int)?;
-            let TokenTreeInner::Literal(lex::Lit::IntLit(n)) = t.inner else {
+            let TokenTreeInner::Literal(lex::Lit::Int(n)) = t.inner else {
                 unreachable!()
             };
             Expr {
@@ -321,7 +338,7 @@ impl Expr {
             }
         } else if la.peek(LitKind::Float) {
             let t = tokens.expect(LitKind::Float)?;
-            let TokenTreeInner::Literal(lex::Lit::FloatLit(n)) = t.inner else {
+            let TokenTreeInner::Literal(lex::Lit::Float(n)) = t.inner else {
                 unreachable!()
             };
             Expr {

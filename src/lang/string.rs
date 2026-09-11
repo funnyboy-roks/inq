@@ -1,11 +1,14 @@
 use std::{borrow::Borrow, cell::RefCell, collections::HashSet, ops::Deref, sync::Arc};
 
+use derive_more::Display;
+
 thread_local! {
     static STRINGS: RefCell<HashSet<Arc<str>>> = RefCell::new(HashSet::new());
 }
 
 /// Interned String
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display)]
+#[display("{}", _0)]
 pub struct IStr(Arc<str>);
 
 impl IStr {
@@ -38,13 +41,17 @@ impl IStr {
 
         Self(s)
     }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Deref for IStr {
     type Target = str;
 
     fn deref(&self) -> &Self::Target {
-        &*self.0
+        self.as_str()
     }
 }
 
@@ -66,7 +73,7 @@ impl Drop for IStr {
 
 impl AsRef<str> for IStr {
     fn as_ref(&self) -> &str {
-        &self.0
+        self.as_str()
     }
 }
 
@@ -76,9 +83,21 @@ impl From<IStr> for String {
     }
 }
 
+impl From<&IStr> for String {
+    fn from(value: &IStr) -> Self {
+        value.as_ref().into()
+    }
+}
+
 impl From<&str> for IStr {
     fn from(value: &str) -> Self {
         Self::new(value)
+    }
+}
+
+impl From<char> for IStr {
+    fn from(value: char) -> Self {
+        Self::from_owned(format!("{}", value))
     }
 }
 
