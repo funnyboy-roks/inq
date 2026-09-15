@@ -518,6 +518,8 @@ pub(crate) fn run(
 mod test {
     use miette::NamedSource;
 
+    use crate::cli::parse::Json;
+
     use super::make_engine;
     use inq_lang::{IStr, lex::Lexer, parse::Parser};
 
@@ -570,7 +572,7 @@ mod test {
         }));
 
         assert_eq!(
-            j.downcast::<IStr>().unwrap().as_str(),
+            j.assert_downcast::<Json>().0.as_str(),
             serde_json::to_string(&serde_json::json!({
                 "key1": "bar",
                 "key2": 0,
@@ -612,7 +614,7 @@ mod test {
         }));
 
         assert_eq!(
-            j.downcast::<IStr>().unwrap(),
+            j.assert_downcast::<Json>().0.as_str(),
             serde_json::to_string(&serde_json::json!({
                 "key1": "bar",
                 "key2": 0,

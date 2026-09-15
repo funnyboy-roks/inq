@@ -236,9 +236,7 @@ impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod for fn(&mut T, V) 
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let args = V::from_varargs(&ctx, varargs)?;
         self(this, args).map(Into::into)
     }
@@ -247,9 +245,7 @@ impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod for fn(&mut T, V) 
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let args = V::from_varargs(&ctx, varargs)?;
         Ok(self(this, args).into())
     }
@@ -260,9 +256,7 @@ impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let args = V::from_varargs(&ctx, varargs)?;
         self(ctx, this, args).map(Into::into)
     }
@@ -273,9 +267,7 @@ impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let args = V::from_varargs(&ctx, varargs)?;
         Ok(self(ctx, this, args).into())
     }
@@ -284,9 +276,7 @@ impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(&mut T) -> EvalResult<Ret> 
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let () = <()>::from_varargs(&ctx, varargs)?;
         self(this).map(Into::into)
     }
@@ -295,9 +285,7 @@ impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(&mut T) -> Ret {
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let () = <()>::from_varargs(&ctx, varargs)?;
         Ok(self(this).into())
     }
@@ -306,9 +294,7 @@ impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(CallContext, &mut T) -> Eva
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let () = <()>::from_varargs(&ctx, varargs)?;
         self(ctx, this).map(Into::into)
     }
@@ -317,9 +303,7 @@ impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(CallContext, &mut T) -> Ret
     fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let mut this = this.borrow_mut();
-        let Some(this) = this.downcast_mut::<T>() else {
-            panic!("this type must be checked by caller");
-        };
+        let this = this.unwrap_mut::<T>();
         let () = <()>::from_varargs(&ctx, varargs)?;
         Ok(self(ctx, this).into())
     }
@@ -344,9 +328,7 @@ impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> R {
     fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
-        let Some(this) = x.downcast_ref::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this).into())
     }
@@ -355,9 +337,7 @@ impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> EvalResult<R
     fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
-        let Some(this) = x.downcast_ref::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this)?.into())
     }
@@ -378,14 +358,10 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
     fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
-        let Some(this) = x.downcast_ref::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_ref::<T>();
 
         let x = index.borrow();
-        let Some(idx) = x.downcast_ref::<I>() else {
-            panic!("this type should be checked by caller");
-        };
+        let idx = x.unwrap_ref::<I>();
 
         Ok(self(ctx, this, idx).into())
     }
@@ -396,14 +372,10 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
     fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
-        let Some(this) = x.downcast_ref::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_ref::<T>();
 
         let x = index.borrow();
-        let Some(idx) = x.downcast_ref::<I>() else {
-            panic!("this type should be checked by caller");
-        };
+        let idx = x.unwrap_ref::<I>();
 
         Ok(self(ctx, this, idx)?.into())
     }
@@ -433,14 +405,10 @@ impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I
     ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
-        let Some(this) = x.downcast_mut::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_mut::<T>();
 
         let x = index.borrow();
-        let Some(idx) = x.downcast_ref::<I>() else {
-            panic!("this type should be checked by caller");
-        };
+        let idx = x.unwrap_ref::<I>();
 
         self(ctx, this, idx, value);
         Ok(())
@@ -457,14 +425,10 @@ impl<T: Value, I: Value> IndexSetter
     ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
-        let Some(this) = x.downcast_mut::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_mut::<T>();
 
         let x = index.borrow();
-        let Some(idx) = x.downcast_ref::<I>() else {
-            panic!("this type should be checked by caller");
-        };
+        let idx = x.unwrap_ref::<I>();
 
         self(ctx, this, idx, value)
     }
@@ -474,9 +438,7 @@ impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) -> EvalResult<()> {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
-        let Some(this) = x.downcast_mut::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_mut::<T>();
         self(ctx, this, value)
     }
 }
@@ -484,9 +446,7 @@ impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
-        let Some(this) = x.downcast_mut::<T>() else {
-            panic!("this type should be checked by caller");
-        };
+        let this = x.unwrap_mut::<T>();
         self(ctx, this, value);
         Ok(())
     }
@@ -553,13 +513,9 @@ impl Value for FunctionValue {
 impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> Ret {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<L>() else {
-            panic!("lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<L>();
         let borrow = rhs.borrow();
-        let Some(rhs) = borrow.downcast_ref::<R>() else {
-            panic!("rhs must be checked by caller");
-        };
+        let rhs = borrow.unwrap_ref::<R>();
 
         Ok(self(lhs, rhs).into())
     }
@@ -567,13 +523,9 @@ impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> Re
 impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> EvalResult<Ret> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<L>() else {
-            panic!("lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<L>();
         let borrow = rhs.borrow();
-        let Some(rhs) = borrow.downcast_ref::<R>() else {
-            panic!("rhs must be checked by caller");
-        };
+        let rhs = borrow.unwrap_ref::<R>();
 
         Ok(self(lhs, rhs)?.into())
     }
@@ -581,9 +533,7 @@ impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> Ev
 impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &ValueRef) -> Ret {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<L>() else {
-            panic!("lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<L>();
 
         Ok(self(lhs, &rhs).into())
     }
@@ -591,9 +541,7 @@ impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &ValueRef) -> Ret {
 impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &ValueRef) -> EvalResult<Ret> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<L>() else {
-            panic!("lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<L>();
 
         Ok(self(lhs, &rhs)?.into())
     }
@@ -603,9 +551,7 @@ impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> R
     fn apply(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let borrow = this.borrow();
-        let Some(this) = borrow.downcast_ref::<T>() else {
-            panic!("this must be checked by caller");
-        };
+        let this = borrow.unwrap_ref::<T>();
 
         Ok(self(ctx, this).into())
     }
@@ -614,9 +560,7 @@ impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> E
     fn apply(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let borrow = this.borrow();
-        let Some(this) = borrow.downcast_ref::<T>() else {
-            panic!("this must be checked by caller");
-        };
+        let this = borrow.unwrap_ref::<T>();
 
         Ok(self(ctx, this)?.into())
     }
@@ -625,14 +569,10 @@ impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> E
 impl<T: Value, Rhs: Value> CmpFunction for fn(&T, &Rhs) -> Option<Ordering> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef) -> Option<Ordering> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<T>() else {
-            panic!("type of lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<T>();
 
         let borrow = rhs.borrow();
-        let Some(rhs) = borrow.downcast_ref::<Rhs>() else {
-            panic!("type of rhs must be checked by caller");
-        };
+        let rhs = borrow.unwrap_ref::<Rhs>();
 
         self(lhs, rhs)
     }
@@ -640,9 +580,7 @@ impl<T: Value, Rhs: Value> CmpFunction for fn(&T, &Rhs) -> Option<Ordering> {
 impl<T: Value> CmpFunction for fn(&T, &ValueRef) -> Option<Ordering> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef) -> Option<Ordering> {
         let borrow = lhs.borrow();
-        let Some(lhs) = borrow.downcast_ref::<T>() else {
-            panic!("type of lhs must be checked by caller");
-        };
+        let lhs = borrow.unwrap_ref::<T>();
 
         self(lhs, &rhs)
     }

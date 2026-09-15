@@ -9,14 +9,13 @@ route notifications(user_id = "") => GET "/notifications${params({ user_id })}";
 
 route notifications/new(level, message, source = "hello") => POST "${BASE_URL}/echo"
     before {
-        print("Hello");
         request.body = json({
             level,
             message,
             source,
             title: "hello world",
         });
-        debug(request.headers["content-type"]);
+        debug(request);
         request.headers["authorization"] = "Bearer: foo/bar";
     }
     after {

@@ -73,6 +73,20 @@ impl ValueRef {
         self.borrow().downcast_ref().cloned()
     }
 
+    /// Downcast or panic if self is not T
+    #[track_caller]
+    pub fn unwrap<T: Value + Clone>(&self) -> T {
+        if let Some(t) = self.downcast() {
+            t
+        } else {
+            panic!(
+                "Expected type {} got type {}",
+                T::type_name(),
+                self.borrow().type_name_of()
+            );
+        }
+    }
+
     pub fn is<T: Value>(&self) -> bool {
         self.borrow().is::<T>()
     }
@@ -180,5 +194,28 @@ impl dyn Value {
 
     pub fn downcast_mut<T: Value>(&mut self) -> Option<&mut T> {
         (self as &mut dyn Any).downcast_mut()
+    }
+
+    #[track_caller]
+    pub fn unwrap_ref<T: Value>(&self) -> &T {
+        if let Some(t) = self.downcast_ref() {
+            t
+        } else {
+            panic!(
+                "Expected type {} got type {}",
+                T::type_name(),
+                self.type_name_of()
+            );
+        }
+    }
+
+    #[track_caller]
+    pub fn unwrap_mut<T: Value>(&mut self) -> &mut T {
+        let name = self.type_name_of();
+        if let Some(t) = self.downcast_mut() {
+            t
+        } else {
+            panic!("Expected type {} got type {}", T::type_name(), name,);
+        }
     }
 }
