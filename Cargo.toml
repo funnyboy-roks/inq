@@ -34,3 +34,4 @@ tokio = "1.52.3"
 mime_guess = "2.0.5"
 base64 = "0.22.1"
 hex = "0.4.3"
+inq-lang = { path = "./inq-lang/" }

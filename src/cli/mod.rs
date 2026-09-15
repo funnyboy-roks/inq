@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 
+pub(crate) mod parse;
 pub(crate) mod query;
 pub(crate) mod variable;
 
@@ -69,6 +70,12 @@ pub struct VariableCommand {
     pub command: VariableSubCmd,
 }
 
+#[derive(Debug, Parser)]
+pub struct ParseCommand {
+    pub file: PathBuf,
+    pub args: Vec<String>,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum SubCmd {
     /// Execute a query
@@ -77,6 +84,7 @@ pub enum SubCmd {
     /// Manipulate persisted variables
     #[clap(alias = "var")]
     Variable(VariableCommand),
+    Parse(ParseCommand),
 }
 
 impl SubCmd {
@@ -84,6 +92,7 @@ impl SubCmd {
         match self {
             SubCmd::Query(query_command) => query_command.get_variable(name),
             SubCmd::Variable(_) => None,
+            SubCmd::Parse(_) => None,
         }
     }
 }

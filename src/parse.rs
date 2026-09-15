@@ -10,10 +10,12 @@ fn entry_value_as_string(entry: &KdlEntry) -> miette::Result<Cow<'_, str>> {
         KdlValue::String(s) => s.as_str().into(),
         KdlValue::Integer(n) => n.to_string().into(),
         KdlValue::Float(f) => f.to_string().into(),
-        KdlValue::Bool(_) | KdlValue::Null => bail! {
-            labels = vec![entry.span().with_label("here")],
-            "Expected variable value to be a string or number."
-        },
+        KdlValue::Bool(_) | KdlValue::Null => {
+            bail! {
+                labels = vec![entry.span().with_label("here")],
+                "Expected variable value to be a string or number."
+            }
+        }
     };
 
     Ok(s)
