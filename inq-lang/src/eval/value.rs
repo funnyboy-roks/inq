@@ -1,15 +1,15 @@
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
-    cell::{OnceCell, RefCell},
-    fmt::Debug,
+    cell::{OnceCell, Ref, RefCell, RefMut},
+    fmt::{Debug, Display},
     ops::Deref,
     rc::Rc,
 };
 
 use crate::{
     Span,
-    eval::{registry::Registry, value::native::Null},
+    eval::{EvalError, EvalResult, registry::Registry, value::native::Null},
 };
 
 /// Native types
@@ -24,6 +24,12 @@ impl<V: Value> From<V> for ValueRef {
     }
 }
 
+impl<V: Into<ValueRef>> From<Option<V>> for ValueRef {
+    fn from(value: Option<V>) -> Self {
+        value.map(Into::into).unwrap_or_else(ValueRef::null)
+    }
+}
+
 impl Debug for ValueRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.borrow())
@@ -33,6 +39,10 @@ impl Debug for ValueRef {
 impl ValueRef {
     pub fn new(value: impl Value) -> Self {
         Self(Rc::new(RefCell::new(value)))
+    }
+
+    pub fn from_ref(value: Rc<RefCell<impl Value>>) -> Self {
+        Self(value)
     }
 
     pub fn null() -> Self {
@@ -47,6 +57,14 @@ impl ValueRef {
         (&*b as &dyn Any).type_id()
     }
 
+    pub fn borrow(&self) -> Ref<'_, dyn Value> {
+        self.0.borrow()
+    }
+
+    pub fn borrow_mut(&self) -> RefMut<'_, dyn Value> {
+        self.0.borrow_mut()
+    }
+
     pub fn type_name_of(&self) -> Cow<'static, str> {
         self.borrow().type_name_of()
     }
@@ -58,25 +76,79 @@ impl ValueRef {
     pub fn is<T: Value>(&self) -> bool {
         self.borrow().is::<T>()
     }
-}
 
-impl Deref for ValueRef {
-    type Target = Rc<RefCell<dyn Value>>;
+    pub fn expect_downcast<T: Value + Clone>(&self, span: Span) -> EvalResult<T> {
+        self.downcast::<T>().ok_or_else(|| EvalError::InvalidType {
+            expected: T::type_name().into(),
+            actual: self.borrow().type_name_of().into(),
+            span,
+        })
+    }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+    pub fn debug(&self) -> impl Debug + use<'_> {
+        struct VDebug<'a>(&'a ValueRef);
+        impl Debug for VDebug<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                self.0.borrow().debug(f)
+            }
+        }
+        VDebug(self)
+    }
+
+    pub fn display(&self) -> impl Display + use<'_> {
+        struct VDisplay<'a>(&'a ValueRef);
+        impl Display for VDisplay<'_> {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                let mut s = String::new();
+                self.0.borrow().to_string(&mut s);
+                write!(f, "{}", s)
+            }
+        }
+        VDisplay(self)
+    }
+
+    pub(crate) fn snapshot(&self) -> Self {
+        Self(self.borrow().snapshot())
     }
 }
 
 #[derive(Clone, Debug)]
-pub struct CallContext {
+pub struct CallContext<T = ()> {
+    /// The span that makes the most sense for a single error label
     pub(crate) span: Span,
     pub(crate) self_ref: ValueRef,
+    ext: T,
 }
 
-impl CallContext {
+impl CallContext<()> {
+    pub fn new(span: Span, self_ref: ValueRef) -> Self {
+        Self {
+            span,
+            self_ref,
+            ext: (),
+        }
+    }
+}
+
+impl<T> CallContext<T> {
     pub fn span(&self) -> Span {
         self.span
+    }
+
+    pub fn new_ext(span: Span, self_ref: ValueRef, ext: T) -> Self {
+        Self {
+            span,
+            self_ref,
+            ext,
+        }
+    }
+}
+
+impl<T> Deref for CallContext<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ext
     }
 }
 
@@ -86,6 +158,10 @@ pub trait Value: Any + Debug {
         Self: Sized;
     fn type_name_of(&self) -> Cow<'static, str>;
     fn to_string(&self, out: &mut String);
+    /// Take a snapshot of the value in its current state.  The value returned should not change
+    /// once returned.
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>>;
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn truthy(&self) -> bool;
 
     fn register(registry: &mut Registry<Self>)

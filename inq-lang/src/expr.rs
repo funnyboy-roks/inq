@@ -1,8 +1,9 @@
 use crate::{
-    Span,
+    IStr, Span,
+    eval::value::ValueRef,
     lex::{self, GroupDelim, Keyword, LitKind, Punct, TokenKind, TokenStream, TokenTree},
     parse::{Block, Ident, Parse, ParseError, StringExpr},
-    util::DisplayVec,
+    util::{DisplayList, DisplayVec},
 };
 
 use super::lex::TokenTreeInner;
@@ -181,6 +182,9 @@ pub enum ObjectField {
     /// `{ "foo": 1 + 2 }`
     #[display("{_0}: {_1}")]
     String(StringExpr, Expr),
+    /// Used for setting object field programmatically
+    #[display("{_0}: {}", _1.display())]
+    StringValue(IStr, ValueRef),
 }
 
 #[derive(Clone, Debug, derive_more::Display)]
@@ -230,7 +234,7 @@ pub enum Ast {
     },
     #[display("{}[{}]", value, index)]
     Index { value: Box<Expr>, index: Box<Expr> },
-    #[display("{}({})", func, DisplayVec(args))]
+    #[display("{}({})", func, DisplayList(args))]
     FunctionCall {
         func: Box<Expr>,
         args: Vec<Expr>,
@@ -255,7 +259,7 @@ pub enum Ast {
 #[display("{}", ast)]
 pub struct Expr {
     pub(crate) ast: Ast,
-    pub(crate) span: Span,
+    pub span: Span,
 }
 
 impl Expr {

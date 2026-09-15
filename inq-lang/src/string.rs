@@ -62,6 +62,12 @@ impl PartialEq<&str> for IStr {
     }
 }
 
+impl PartialEq<String> for IStr {
+    fn eq(&self, other: &String) -> bool {
+        self.as_ref().eq(other)
+    }
+}
+
 impl Drop for IStr {
     fn drop(&mut self) {
         if Arc::strong_count(&self.0) <= 2 {

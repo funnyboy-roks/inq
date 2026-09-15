@@ -56,6 +56,18 @@ impl LazyValueRef {
             })),
         }
     }
+
+    /// Snapshot self in its current state.  If lazy, then it is _not_ a snapshot, it is just a
+    /// reference
+    pub fn snapshot(&self) -> Self {
+        let inner = match &*self.inner.borrow() {
+            LazyValueRefInner::Resolved(r) => {
+                Rc::new(RefCell::new(LazyValueRefInner::Resolved(r.snapshot())))
+            }
+            LazyValueRefInner::Pending { .. } => self.inner.clone(),
+        };
+        Self { inner }
+    }
 }
 
 impl<V> From<V> for LazyValueRef

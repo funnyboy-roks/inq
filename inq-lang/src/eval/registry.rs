@@ -1,11 +1,14 @@
 use std::{
-    any::TypeId, borrow::Cow, cmp::Ordering, collections::HashMap, fmt::Debug, marker::PhantomData,
-    rc::Rc,
+    any::TypeId, borrow::Cow, cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Debug,
+    marker::PhantomData, rc::Rc,
 };
 
-use crate::eval::{
-    EvalError, EvalResult,
-    value::{CallContext, Value, ValueRef},
+use crate::{
+    Span,
+    eval::{
+        Engine, EvalError, EvalResult,
+        value::{CallContext, Value, ValueRef},
+    },
 };
 
 macro_rules! count {
@@ -329,22 +332,50 @@ impl<T: Value, V, R> Method<T> for fn(CallContext, &mut T, V) -> R where Self: D
 impl<T: Value, R> Method<T> for fn(CallContext, &mut T) -> R where Self: DynMethod {}
 impl<T: Value, R> Method<T> for fn(&mut T) -> R where Self: DynMethod {}
 
-pub trait Getter: DynMethod {
-    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
-        self.call(VarArgs::empty(), ctx)
-    }
+pub trait Getter {
+    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef>;
 }
 
 pub trait Setter {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()>;
 }
 
-pub trait IndexGetter {
-    fn get(&self, index: ValueRef, ctx: CallContext) -> EvalResult<ValueRef>;
+impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> R {
+    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
+        let this = ctx.self_ref.clone();
+        let x = this.borrow();
+        let Some(this) = x.downcast_ref::<T>() else {
+            panic!("this type should be checked by caller");
+        };
+
+        Ok(self(ctx, this).into())
+    }
+}
+impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> EvalResult<R> {
+    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
+        let this = ctx.self_ref.clone();
+        let x = this.borrow();
+        let Some(this) = x.downcast_ref::<T>() else {
+            panic!("this type should be checked by caller");
+        };
+
+        Ok(self(ctx, this)?.into())
+    }
 }
 
-impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter for fn(CallContext, &T, &I) -> R {
-    fn get(&self, index: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
+#[derive(Debug, Clone, Copy)]
+pub struct GetIndexCtx {
+    pub index_span: Span,
+}
+
+pub trait IndexGetter {
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef>;
+}
+
+impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
+    for fn(CallContext<GetIndexCtx>, &T, &I) -> R
+{
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
         let Some(this) = x.downcast_ref::<T>() else {
@@ -360,9 +391,9 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter for fn(CallContext, &T, 
     }
 }
 impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
-    for fn(CallContext, &T, &I) -> EvalResult<R>
+    for fn(CallContext<GetIndexCtx>, &T, &I) -> EvalResult<R>
 {
-    fn get(&self, index: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
         let Some(this) = x.downcast_ref::<T>() else {
@@ -378,12 +409,28 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
     }
 }
 
-pub trait IndexSetter {
-    fn set(&self, index: ValueRef, value: ValueRef, ctx: CallContext) -> EvalResult<()>;
+#[derive(Debug, Clone, Copy)]
+pub struct SetIndexCtx {
+    pub rhs_span: Span,
+    pub index_span: Span,
 }
 
-impl<T: Value, I: Value> IndexSetter for fn(CallContext, &mut T, &I, ValueRef) -> () {
-    fn set(&self, index: ValueRef, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
+pub trait IndexSetter {
+    fn set(
+        &self,
+        index: ValueRef,
+        value: ValueRef,
+        ctx: CallContext<SetIndexCtx>,
+    ) -> EvalResult<()>;
+}
+
+impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> () {
+    fn set(
+        &self,
+        index: ValueRef,
+        value: ValueRef,
+        ctx: CallContext<SetIndexCtx>,
+    ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
         let Some(this) = x.downcast_mut::<T>() else {
@@ -399,8 +446,15 @@ impl<T: Value, I: Value> IndexSetter for fn(CallContext, &mut T, &I, ValueRef) -
         Ok(())
     }
 }
-impl<T: Value, I: Value> IndexSetter for fn(CallContext, &mut T, &I, ValueRef) -> EvalResult<()> {
-    fn set(&self, index: ValueRef, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
+impl<T: Value, I: Value> IndexSetter
+    for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> EvalResult<()>
+{
+    fn set(
+        &self,
+        index: ValueRef,
+        value: ValueRef,
+        ctx: CallContext<SetIndexCtx>,
+    ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
         let mut x = this.borrow_mut();
         let Some(this) = x.downcast_mut::<T>() else {
@@ -416,22 +470,24 @@ impl<T: Value, I: Value> IndexSetter for fn(CallContext, &mut T, &I, ValueRef) -
     }
 }
 
-impl<T: Value> Setter for fn(&mut T, ValueRef) -> EvalResult<()> {
+impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) -> EvalResult<()> {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
-        let mut x = ctx.self_ref.borrow_mut();
+        let this = ctx.self_ref.clone();
+        let mut x = this.borrow_mut();
         let Some(this) = x.downcast_mut::<T>() else {
             panic!("this type should be checked by caller");
         };
-        self(this, value)
+        self(ctx, this, value)
     }
 }
-impl<T: Value> Setter for fn(&mut T, ValueRef) {
+impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
-        let mut x = ctx.self_ref.borrow_mut();
+        let this = ctx.self_ref.clone();
+        let mut x = this.borrow_mut();
         let Some(this) = x.downcast_mut::<T>() else {
             panic!("this type should be checked by caller");
         };
-        self(this, value);
+        self(ctx, this, value);
         Ok(())
     }
 }
@@ -475,7 +531,13 @@ impl Value for FunctionValue {
     fn to_string(&self, out: &mut String) {
         out.push_str("<native function>");
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(fmt, "<native function>")
+    }
 
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(self.clone()))
+    }
     fn truthy(&self) -> bool {
         true
     }
@@ -487,8 +549,6 @@ impl Value for FunctionValue {
         registry.register_call::<fn(_, &mut _, VarArgs) -> _>(|ctx, f, args| f.0.call(args, ctx));
     }
 }
-
-impl<T, R> Getter for fn(&mut T) -> R where Self: Method<T> {}
 
 impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> Ret {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
@@ -643,6 +703,7 @@ pub struct Registry<T> {
 
 #[derive(derive_more::Debug)]
 pub(crate) struct AnyRegistry {
+    engine: Rc<Engine>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     methods: HashMap<&'static str, Rc<dyn DynMethod>>,
     fields: HashMap<&'static str, Field>,
@@ -689,9 +750,10 @@ impl AnyRegistry {
 }
 
 impl<T: Value> Registry<T> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(engine: Rc<Engine>) -> Self {
         Self {
             inner: AnyRegistry {
+                engine,
                 methods: Default::default(),
                 fields: Default::default(),
                 bin_ops: Default::default(),
@@ -702,6 +764,18 @@ impl<T: Value> Registry<T> {
             },
             _p: PhantomData,
         }
+    }
+
+    /// Get a reference to the engine.  This can be used to recursively register types:
+    ///
+    /// ```no_run
+    /// fn register(registry: &mut Registry<MyType>) {
+    ///     registry.engine().register_type::<MyOtherType>();
+    ///     // ...
+    /// }
+    /// ```
+    pub fn engine(&self) -> Rc<Engine> {
+        self.inner.engine.clone()
     }
 
     pub fn register_method<F>(&mut self, name: &'static str, func: F)
@@ -718,9 +792,9 @@ impl<T: Value> Registry<T> {
         self.inner.call = Some(Rc::new(func));
     }
 
-    pub fn register_field_get<Ret>(&mut self, name: &'static str, func: fn(&mut T) -> Ret)
+    pub fn register_field_get<Ret>(&mut self, name: &'static str, func: fn(CallContext, &T) -> Ret)
     where
-        fn(&mut T) -> Ret: Method<T> + Getter + 'static,
+        fn(CallContext, &T) -> Ret: Getter + 'static,
     {
         self.inner.fields.insert(
             name,
@@ -731,14 +805,14 @@ impl<T: Value> Registry<T> {
         );
     }
 
-    pub fn register_field_get_set<Ret: 'static>(
+    pub fn register_field_get_set<Ret: 'static, SetRet: 'static>(
         &mut self,
         name: &'static str,
-        getter: fn(&mut T) -> Ret,
-        setter: fn(&mut T, ValueRef),
+        getter: fn(CallContext, &T) -> Ret,
+        setter: fn(CallContext, &mut T, ValueRef) -> SetRet,
     ) where
-        fn(&mut T) -> Ret: Method<T> + Getter + 'static,
-        fn(&mut T, ValueRef): Setter + 'static,
+        fn(CallContext, &T) -> Ret: Getter + 'static,
+        fn(CallContext, &mut T, ValueRef) -> SetRet: Setter + 'static,
     {
         self.inner.fields.insert(
             name,
@@ -766,11 +840,11 @@ impl<T: Value> Registry<T> {
 
     pub fn register_index_get_set<IndexType, Ret, SR>(
         &mut self,
-        getter: fn(CallContext, &T, &IndexType) -> Ret,
-        setter: fn(CallContext, &mut T, &IndexType, ValueRef) -> SR,
+        getter: fn(CallContext<GetIndexCtx>, &T, &IndexType) -> Ret,
+        setter: fn(CallContext<SetIndexCtx>, &mut T, &IndexType, ValueRef) -> SR,
     ) where
-        fn(CallContext, &T, &IndexType) -> Ret: IndexGetter + 'static,
-        fn(CallContext, &mut T, &IndexType, ValueRef) -> SR: IndexSetter + 'static,
+        fn(CallContext<GetIndexCtx>, &T, &IndexType) -> Ret: IndexGetter + 'static,
+        fn(CallContext<SetIndexCtx>, &mut T, &IndexType, ValueRef) -> SR: IndexSetter + 'static,
     {
         self.inner.indexers.insert(
             TypeId::of::<IndexType>(),

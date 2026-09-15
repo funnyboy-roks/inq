@@ -18,7 +18,9 @@ use crate::{
     IStr, Span,
     eval::{
         lazy::LazyValueRef,
-        registry::{AnyRegistry, BinOp, DynMethod, Field, Indexer, Registry, UnaryOp, VarArgs},
+        registry::{
+            AnyRegistry, BinOp, DynMethod, Field, GetIndexCtx, Indexer, Registry, UnaryOp, VarArgs,
+        },
         value::{
             CallContext, Value, ValueRef,
             native::{Array, Float, Int, Null, Object},
@@ -153,6 +155,23 @@ pub enum EvalError {
         #[label = "This comparison"]
         span: Span,
     },
+    #[error("Expected {} got {}", expected, actual)]
+    InvalidType {
+        expected: String,
+        actual: String,
+        #[label = "here"]
+        span: Span,
+    },
+    #[error("`request` may only be used in the `before` block")]
+    RequestInBadPosition {
+        #[label = "here"]
+        span: Span,
+    },
+    #[error("`response` may only be used in the `after` block")]
+    ResponseInBadPosition {
+        #[label = "here"]
+        span: Span,
+    },
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
@@ -184,8 +203,8 @@ impl Engine {
             types: Default::default(),
             global: OnceCell::new(),
         };
-        this.register_defaults();
         let this = Rc::new(this);
+        this.register_defaults();
         this.global.get_or_init({
             let this = this.clone();
             move || Scope::new(this).into()
@@ -193,7 +212,7 @@ impl Engine {
         this
     }
 
-    fn register_defaults(&self) {
+    fn register_defaults(self: &Rc<Self>) {
         self.register_type::<IStr>();
         self.register_type::<Int>();
         self.register_type::<Float>();
@@ -203,15 +222,13 @@ impl Engine {
         self.register_type::<Object>();
     }
 
-    pub fn register_type<V: Value>(&self) {
-        match self.types.borrow_mut().0.entry(TypeId::of::<V>()) {
-            Entry::Occupied(_) => {}
-            Entry::Vacant(e) => {
-                let mut reg = Registry::new();
-                V::register(&mut reg);
-                let (_, reg) = reg.erase();
-                e.insert_entry(reg.into());
-            }
+    pub fn register_type<V: Value>(self: &Rc<Self>) {
+        let tid = TypeId::of::<V>();
+        if !self.types.borrow().0.contains_key(&tid) {
+            let mut reg = Registry::new(self.clone());
+            V::register(&mut reg);
+            let (_, reg) = reg.erase();
+            self.types.borrow_mut().0.insert(tid, reg.into());
         }
     }
 
@@ -271,12 +288,34 @@ impl Engine {
     }
 }
 
+/// Special items that are used for configuring/confirming a request
+#[derive(Debug, Clone, Default)]
+pub enum Special {
+    #[default]
+    None,
+    /// The `request` special variable
+    Request(ValueRef),
+    /// The `response` special variable
+    Response(ValueRef),
+}
+
+impl Special {
+    fn snapshot(&self) -> Self {
+        match self {
+            Special::None => Special::None,
+            Special::Request(r) => Special::Request(r.snapshot()),
+            Special::Response(r) => Special::Response(r.snapshot()),
+        }
+    }
+}
+
 #[derive(Default, derive_more::Debug, Clone)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
     variables: RefCell<HashMap<IStr, LazyValueRef>>,
     #[debug("..")]
     engine: Rc<Engine>,
+    special: RefCell<Special>,
 }
 
 impl Scope {
@@ -285,18 +324,30 @@ impl Scope {
             parent: None,
             variables: Default::default(),
             engine,
+            special: Default::default(),
         }
     }
 
     /// Take a snapshot of this scope such that modifying `self` does not modify the returned
     /// snapshot
+    ///
+    /// The only exception is that the engine itself is the same
     pub(crate) fn snapshot(&self) -> Self {
-        let mut snapshot = Self::clone(self);
-        snapshot.parent = snapshot.parent.map(|s| Rc::new(s.snapshot()));
-        snapshot
+        Self {
+            parent: self.parent.as_ref().map(|s| Rc::new(s.snapshot())),
+            variables: RefCell::new(
+                self.variables
+                    .borrow()
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.snapshot()))
+                    .collect(),
+            ),
+            engine: self.engine.clone(),
+            special: self.special.borrow().snapshot().into(),
+        }
     }
 
-    pub(crate) fn child(self: &Rc<Self>) -> Rc<Self> {
+    pub fn make_child(self: &Rc<Self>) -> Rc<Self> {
         let mut this = Self::new(self.engine.clone());
         this.parent = Some(self.clone());
         this.into()
@@ -331,6 +382,33 @@ impl Scope {
 
     pub fn add_variable(&self, var: Variable) {
         self.set_variable_by_ref(var.name.inner, LazyValueRef::lazy(self, var.value), true);
+    }
+
+    pub fn set_special(&self, special: Special) {
+        self.special.replace(special);
+    }
+
+    fn special(&self) -> Option<Special> {
+        match &*self.special.borrow() {
+            Special::None => self.parent.as_deref().and_then(Scope::special),
+            spec => Some(spec.clone()),
+        }
+    }
+
+    fn request(&self) -> Option<ValueRef> {
+        match self.special()? {
+            Special::None => unreachable!(),
+            Special::Request(r) => Some(r),
+            Special::Response(_) => None,
+        }
+    }
+
+    fn response(&self) -> Option<ValueRef> {
+        match self.special()? {
+            Special::None => unreachable!(),
+            Special::Request(_) => None,
+            Special::Response(r) => Some(r),
+        }
     }
 
     /// Returns true if the variable already existed
@@ -375,8 +453,9 @@ impl Scope {
             },
             Ast::Block(block) => {
                 let mut last = ValueRef::null();
+                let scope = self.make_child();
                 for e in block.exprs {
-                    last = self.child().eval(e)?;
+                    last = scope.eval(e)?;
                 }
                 if block.ret {
                     Ok(last)
@@ -385,8 +464,12 @@ impl Scope {
                 }
             }
             Ast::Variable(ident) => self.expect_variable(&ident),
-            Ast::Request => todo!(),
-            Ast::Response => todo!(),
+            Ast::Request => self
+                .request()
+                .ok_or(EvalError::RequestInBadPosition { span: expr.span }),
+            Ast::Response => self
+                .request()
+                .ok_or(EvalError::ResponseInBadPosition { span: expr.span }),
             Ast::PrefixOp {
                 op,
                 op_span,
@@ -407,10 +490,7 @@ impl Scope {
                         operand: operand.type_name_of().into(),
                     });
                 };
-                unary_op.apply(CallContext {
-                    span: op_span,
-                    self_ref: operand,
-                })
+                unary_op.apply(CallContext::new(op_span, operand))
             }
             Ast::InfixOp {
                 op,
@@ -443,19 +523,17 @@ impl Scope {
                                         field: name.clone(),
                                     })?;
 
-                            setter.set(
-                                value,
-                                CallContext {
-                                    span: name.span,
-                                    self_ref: obj,
-                                },
-                            )?;
+                            setter.set(value, CallContext::new(name.span, obj))?;
 
                             Ok(ValueRef::null())
                         }
                         Ast::Index { value, index } => {
-                            let rhs = self.eval(rhs)?;
                             let span = index.span;
+                            let ctx = registry::SetIndexCtx {
+                                rhs_span: rhs.span,
+                                index_span: index.span,
+                            };
+                            let rhs = self.eval(rhs)?;
                             let value = self.eval(*value)?;
                             let index = self.eval(*index)?;
                             let indexer = self.engine.get_index(&value, &index, span)?;
@@ -469,10 +547,7 @@ impl Scope {
                             setter.set(
                                 index,
                                 rhs,
-                                CallContext {
-                                    span,
-                                    self_ref: value.clone(),
-                                },
+                                CallContext::new_ext(span, value.clone(), ctx),
                             )?;
 
                             Ok(ValueRef::null())
@@ -558,14 +633,7 @@ impl Scope {
                     });
                 };
 
-                binop.apply(
-                    lhs.clone(),
-                    rhs,
-                    CallContext {
-                        span: op_span,
-                        self_ref: lhs,
-                    },
-                )
+                binop.apply(lhs.clone(), rhs, CallContext::new(op_span, lhs))
             }
             Ast::PostfixOp { op, operand, .. } => {
                 let span = operand.span;
@@ -597,10 +665,7 @@ impl Scope {
                 let value = self.eval(*value)?;
                 let span = field.span;
                 let getter = &self.engine.get_field(&value, value_span, &field)?.getter;
-                getter.get(CallContext {
-                    span,
-                    self_ref: value,
-                })
+                getter.get(CallContext::new(span, value))
             }
             Ast::MethodCall {
                 value,
@@ -617,41 +682,30 @@ impl Scope {
 
                 let span = method.span;
                 let func = &self.engine.get_method(&value, value_span, &method)?;
-                func.call(
-                    VarArgs::new(eval_args),
-                    CallContext {
-                        span,
-                        self_ref: value,
-                    },
-                )
+                func.call(VarArgs::new(eval_args), CallContext::new(span, value))
             }
             Ast::Index { value, index } => {
                 let span = index.span;
+                let ctx_ext = registry::GetIndexCtx {
+                    index_span: index.span,
+                };
                 let value = self.eval(*value)?;
-                let index = self.child().eval(*index)?;
+                let index = self.make_child().eval(*index)?;
                 let idx = self.engine.get_index(&value, &index, span)?;
-                idx.getter.get(
-                    index,
-                    CallContext {
-                        span,
-                        self_ref: value.clone(),
-                    },
-                )
+                idx.getter
+                    .get(index, CallContext::new_ext(span, value.clone(), ctx_ext))
             }
             Ast::FunctionCall { func, args, span } => {
                 let mut eval_args = Vec::with_capacity(args.len());
                 for a in args {
-                    eval_args.push(self.child().eval(a)?);
+                    eval_args.push(self.make_child().eval(a)?);
                 }
                 let func = self.eval(*func)?;
                 let reg = self.engine.get_type(&func, span)?;
                 if let Some(call) = &reg.call {
                     call.call(
                         VarArgs::new(eval_args),
-                        CallContext {
-                            span,
-                            self_ref: func.clone(),
-                        },
+                        CallContext::new(span, func.clone()),
                     )
                 } else {
                     Err(EvalError::NotCallable {
@@ -665,12 +719,12 @@ impl Scope {
                 then,
                 elze,
             } => {
-                let condition = self.child().eval(*condition)?;
+                let condition = self.make_child().eval(*condition)?;
                 if condition.borrow().truthy() {
-                    self.child().eval(*then)
+                    self.make_child().eval(*then)
                 } else {
                     if let Some(elze) = elze {
-                        self.child().eval(*elze)
+                        self.make_child().eval(*elze)
                     } else {
                         Ok(ValueRef::null())
                     }
@@ -678,7 +732,7 @@ impl Scope {
             }
             Ast::ArrayLiteral { items } => Ok(items
                 .into_iter()
-                .map(|i| self.child().eval(i))
+                .map(|i| self.make_child().eval(i))
                 .collect::<Result<Vec<_>, _>>()?
                 .into()),
             Ast::ObjectLiteral { fields } => {
@@ -691,11 +745,13 @@ impl Scope {
                             (s, val)
                         }
                         ObjectField::IdentWithValue(ident, expr) => {
-                            (ident.inner, self.child().eval(expr)?)
+                            (ident.inner, self.make_child().eval(expr)?)
                         }
-                        ObjectField::String(string_expr, expr) => {
-                            (self.eval_string(string_expr)?, self.child().eval(expr)?)
-                        }
+                        ObjectField::String(string_expr, expr) => (
+                            self.eval_string(string_expr)?,
+                            self.make_child().eval(expr)?,
+                        ),
+                        ObjectField::StringValue(key, value) => (key, value),
                     };
                     inner.insert(k, v);
                 }

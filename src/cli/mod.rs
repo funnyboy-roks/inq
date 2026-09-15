@@ -73,6 +73,7 @@ pub struct VariableCommand {
 #[derive(Debug, Parser)]
 pub struct ParseCommand {
     pub file: PathBuf,
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]

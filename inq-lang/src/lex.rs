@@ -425,6 +425,17 @@ pub enum LexError {
         #[label = "here"]
         span: Span,
     },
+    #[error("Invalid escape sequence{}", extra)]
+    InvalidEscape {
+        #[label = "here"]
+        position: Span,
+        extra: String,
+    },
+}
+
+enum NextTT {
+    Some(TokenTree),
+    Comment,
 }
 
 pub struct Lexer<'a> {
@@ -445,7 +456,10 @@ impl<'a> Lexer<'a> {
         let mut inner = VecDeque::new();
 
         while let Some(t) = self.next_tt()? {
-            inner.push_back(t);
+            match t {
+                NextTT::Some(tt) => inner.push_back(tt),
+                NextTT::Comment => continue,
+            }
         }
 
         Ok(TokenStream {
@@ -559,15 +573,54 @@ impl<'a> Lexer<'a> {
         let mut value = String::new();
         let mut interpolations = Vec::new();
 
-        let mut escaping = false;
-
         loop {
+            let start = self.position;
             match self.expect_char()? {
-                '"' if !escaping => break,
-                '\\' if !escaping => {
-                    escaping = true;
-                }
-                '$' if !escaping => match self.take_char() {
+                '"' => break,
+                '\\' => match self.expect_char()? {
+                    c @ ('$' | '"') => {
+                        value.push(c);
+                    }
+                    'r' => value.push('\r'),
+                    'n' => value.push('\n'),
+                    't' => value.push('\t'),
+                    'x' => {
+                        let mut take = || {
+                            let c = self.expect_char()?;
+                            if c == '"' {
+                                return Err(LexError::InvalidEscape {
+                                    position: (start..self.position - 1).into(),
+                                    extra: ": Expected two hex digits".into(),
+                                });
+                            }
+                            if !c.is_ascii_hexdigit() {
+                                return Err(LexError::InvalidEscape {
+                                    position: (start..self.position).into(),
+                                    extra: ": invalid hex digits".into(),
+                                });
+                            }
+
+                            let c = c.to_ascii_lowercase();
+                            let c = if c > 'a' {
+                                c as u8 - b'a' + 10
+                            } else {
+                                c as u8 - b'0'
+                            };
+
+                            Ok(c)
+                        };
+                        let top = take()?;
+                        let bottom = take()?;
+                        value.push(char::from(top << 4 | bottom))
+                    }
+                    _ => {
+                        return Err(LexError::InvalidEscape {
+                            position: (start..self.position).into(),
+                            extra: "".into(),
+                        });
+                    }
+                },
+                '$' => match self.take_char() {
                     Some(c @ ('a'..='z' | 'A'..='Z' | '_')) => {
                         self.untake_char(c);
                         let tt = self.take_ident()?;
@@ -595,7 +648,6 @@ impl<'a> Lexer<'a> {
                 },
                 c => {
                     value.push(c);
-                    escaping = false;
                 }
             }
         }
@@ -623,7 +675,10 @@ impl<'a> Lexer<'a> {
 
             self.untake_char(c);
 
-            tokens.push_back(self.next_tt()?.expect("checked by expect_char"));
+            match self.next_tt()?.expect("checked by expect_char") {
+                NextTT::Some(tt) => tokens.push_back(tt),
+                NextTT::Comment => continue,
+            }
         }
         Ok(TokenStream {
             inner: tokens,
@@ -631,7 +686,7 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    pub(crate) fn next_tt(&mut self) -> Result<Option<TokenTree>, LexError> {
+    fn next_tt(&mut self) -> Result<Option<NextTT>, LexError> {
         self.skip_whitespace();
 
         let start = self.position;
@@ -643,7 +698,7 @@ impl<'a> Lexer<'a> {
         let tt = match (c, self.peek_char()) {
             ('/', Some('/')) => {
                 self.take_comment();
-                return self.next_tt();
+                return Ok(Some(NextTT::Comment));
             }
             ('(', _) => TokenTreeInner::Group {
                 delim: GroupDelim::Paren,
@@ -659,7 +714,7 @@ impl<'a> Lexer<'a> {
             },
             (c @ ('a'..='z' | 'A'..='Z' | '_'), _) => {
                 self.untake_char(c);
-                return self.take_ident().map(Some);
+                return self.take_ident().map(NextTT::Some).map(Some);
             }
             (c @ ('0'..='9'), _) => {
                 self.untake_char(c);
@@ -681,9 +736,9 @@ impl<'a> Lexer<'a> {
             }
         };
 
-        Ok(Some(TokenTree {
+        Ok(Some(NextTT::Some(TokenTree {
             inner: tt,
             span: (start..self.position).into(),
-        }))
+        })))
     }
 }

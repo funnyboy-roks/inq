@@ -1,11 +1,10 @@
-use std::{borrow::Cow, cmp::Ordering, collections::BTreeMap};
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering, collections::BTreeMap, fmt::Debug, rc::Rc};
 
 use crate::{
     Span,
     eval::{
         EvalError, EvalResult,
         registry::{BinOp, PrefixOp, Registry, UnaryOp, VarArgs},
-        value::CallContext,
     },
     parse::Ident,
     string::IStr,
@@ -67,6 +66,12 @@ impl Value for Int {
         use std::fmt::Write;
         write!(out, "{}", self).expect("Write to string can't fail");
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, fmt)
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(*self))
+    }
     fn truthy(&self) -> bool {
         *self != 0
     }
@@ -126,6 +131,12 @@ impl Value for Float {
         use std::fmt::Write;
         write!(out, "{}", self).expect("Write to string can't fail");
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, fmt)
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(*self))
+    }
     fn truthy(&self) -> bool {
         *self != 0.0
     }
@@ -176,6 +187,12 @@ impl Value for bool {
         use std::fmt::Write;
         write!(out, "{}", self).expect("Write to string can't fail");
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, fmt)
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(*self))
+    }
     fn truthy(&self) -> bool {
         *self
     }
@@ -196,6 +213,12 @@ impl Value for Null {
     }
     fn to_string(&self, out: &mut String) {
         out.push_str("null");
+    }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(fmt, "null")
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(self.clone()))
     }
     fn truthy(&self) -> bool {
         false
@@ -219,6 +242,12 @@ impl Value for IStr {
     fn to_string(&self, out: &mut String) {
         out.push_str(self);
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        <Self as Debug>::fmt(self, fmt)
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(self.clone()))
+    }
     fn truthy(&self) -> bool {
         !self.is_empty()
     }
@@ -237,7 +266,7 @@ impl Value for IStr {
         registry.register_method::<fn(&mut _, _) -> _>(
             "replace",
             |this, (needle, replacement): (IStr, IStr)| -> IStr {
-                this.as_str().replace(needle.as_str(), &replacement).into()
+                this.replace(&*needle, &replacement).into()
             },
         );
         registry.register_method::<fn(_, &mut _, _) -> _>(
@@ -311,6 +340,19 @@ impl Value for Array {
         }
         out.push(']');
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_list()
+            .entries(
+                self.iter()
+                    .map(|e| std::fmt::from_fn(|fmt| e.borrow().debug(fmt))),
+            )
+            .finish()
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(
+            self.iter().map(|x| x.snapshot()).collect::<Self>(),
+        ))
+    }
 
     fn truthy(&self) -> bool {
         true
@@ -327,7 +369,7 @@ impl Value for Array {
         });
         registry.register_index_get_set(
             |ctx, this, &idx: &i64| Ok(this[normalise_index(idx, this.len(), ctx.span)?].clone()),
-            |ctx: CallContext, this: &mut Self, &idx: &i64, value: ValueRef| {
+            |ctx, this: &mut Self, &idx: &i64, value: ValueRef| {
                 let idx = normalise_index(idx, this.len(), ctx.span)?;
                 this[idx] = value;
                 Ok(())
@@ -370,7 +412,24 @@ impl Value for Object {
         }
         out.push('}');
     }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        fmt.debug_map()
+            .entries(
+                self.0
+                    .iter()
+                    .map(|(k, v)| (k, std::fmt::from_fn(|fmt| v.borrow().debug(fmt)))),
+            )
+            .finish()
+    }
 
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(
+            self.0
+                .iter()
+                .map(|(k, v)| (k.clone(), v.snapshot()))
+                .collect::<Self>(),
+        ))
+    }
     fn truthy(&self) -> bool {
         true
     }
@@ -388,6 +447,16 @@ impl Value for Object {
     }
 }
 
+impl<K: Into<IStr>, V: Into<ValueRef>> FromIterator<(K, V)> for Object {
+    fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
+        Self(
+            iter.into_iter()
+                .map(|(k, v)| (k.into(), v.into()))
+                .collect(),
+        )
+    }
+}
+
 impl Value for fn(&IStr) -> ValueRef {
     fn type_name() -> Cow<'static, str>
     where
@@ -400,6 +469,12 @@ impl Value for fn(&IStr) -> ValueRef {
     }
     fn to_string(&self, out: &mut String) {
         out.push_str("<native function>")
+    }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(fmt, "<native function>")
+    }
+    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
+        Rc::new(RefCell::new(*self))
     }
     fn truthy(&self) -> bool {
         true

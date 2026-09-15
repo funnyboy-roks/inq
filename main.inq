@@ -1,21 +1,23 @@
 let port = 3000;
 let host = env("HOST") || "example.com";
-let BASE_URL = "https://$host${ if port == 443 then "" else ":$port" }";
+let BASE_URL = "http://$host${ if port == 443 then "" else ":$port" }";
 
 #[persist]
 let cookie = "";
 
 route notifications(user_id = "") => GET "/notifications${params({ user_id })}";
 
-route notifications/new(level, message, source) => POST "/notifications"
+route notifications/new(level, message, source = "hello") => POST "${BASE_URL}/echo"
     before {
+        print("Hello");
         request.body = json({
             level,
             message,
             source,
             title: "hello world",
         });
-        request.headers["content-type"] = "application/json";
+        debug(request.headers["content-type"]);
+        request.headers["authorization"] = "Bearer: foo/bar";
     }
     after {
         cookie = response.headers["cookie"];

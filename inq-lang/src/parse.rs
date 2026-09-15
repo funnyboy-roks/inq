@@ -5,7 +5,7 @@ use thiserror::Error;
 
 use crate::{
     Span,
-    expr::Expr,
+    expr::{Ast, Expr},
     lex::{AnyMethod, LexError, Lexer, Lit, Method, TokenKind, TokenStream, TokenTree},
     string::IStr,
     util::{DisplayList, DisplayVec, OptionDisplay},
@@ -40,6 +40,21 @@ pub enum ParseError {
         name: String,
         #[label = "here"]
         span: Span,
+    },
+    #[error("Route argument defaults must be specified on all arguments after the first default")]
+    ExpectedDefault {
+        #[label(primary, "this argument")]
+        span: Span,
+        #[label = "First default value set here"]
+        default_span: Span,
+    },
+    #[error("Route argument names must be unique")]
+    DuplicateRouteArg {
+        name: String,
+        #[label("previously defined here")]
+        previous: Span,
+        #[label(primary, "duplicate defined here")]
+        current: Span,
     },
 }
 
@@ -171,10 +186,11 @@ impl Lookahead<'_> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(derive_more::Debug, Clone, PartialEq, Eq)]
+#[debug("Ident({:?}, {:?})", inner, span)]
 pub struct Ident {
     pub(crate) inner: IStr,
-    pub(crate) span: Span,
+    pub span: Span,
 }
 
 impl Ident {
@@ -182,6 +198,12 @@ impl Ident {
         let mut chars = s.chars();
         matches!(chars.next(), Some('a'..='z' | 'A'..='Z' | '_'))
             && chars.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
+    }
+}
+
+impl PartialEq<&str> for Ident {
+    fn eq(&self, other: &&str) -> bool {
+        self.inner.eq(other)
     }
 }
 
@@ -234,11 +256,11 @@ impl Display for StringExpr {
         write!(f, "\"")?;
         for e in &self.interpolations {
             write!(f, "{}", &self.value[last..e.index])?;
-            write!(f, "${{{}}}", e.expr)?;
+            write!(f, "${{ {} }}", e.expr)?;
             last = e.index;
         }
         if !self.value[last..].is_empty() {
-            write!(f, "{:?}", &self.value[last..])?;
+            write!(f, "{}", &self.value[last..])?;
         }
         write!(f, "\"")?;
         Ok(())
@@ -317,6 +339,15 @@ impl Parse for Block {
     }
 }
 
+impl From<Block> for Expr {
+    fn from(val: Block) -> Self {
+        Expr {
+            span: val.span,
+            ast: Ast::Block(val),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Attribute {
     Persist,
@@ -344,7 +375,7 @@ impl Parse for Attribute {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Path(Vec<Ident>);
 
 impl Display for Path {
@@ -356,6 +387,27 @@ impl Display for Path {
             write!(f, "{}", s)?;
         }
         Ok(())
+    }
+}
+
+impl PartialEq<&str> for Path {
+    fn eq(&self, other: &&str) -> bool {
+        let mut rest = *other;
+        for (i, s) in self.0.iter().enumerate() {
+            if i > 0 {
+                let Some(new_rest) = rest.strip_prefix('/') else {
+                    return false;
+                };
+                rest = new_rest;
+            }
+
+            let Some(new_rest) = rest.strip_prefix(&**s.as_ref()) else {
+                return false;
+            };
+            rest = new_rest;
+        }
+
+        rest.is_empty()
     }
 }
 
@@ -376,6 +428,14 @@ impl Parse for Path {
 #[derive(Clone, Debug)]
 pub struct RouteArg {
     pub name: Ident,
+    /// default value of an arugument, specified as `= <value>`
+    ///
+    /// All arguments after first argument with a default _must_ have a default value  
+    /// i.e., This is invalid:
+    ///
+    /// ```inq
+    /// route foo/bar(a = "foo", c) => ...
+    /// ```
     pub default_value: Option<Expr>,
 }
 
@@ -453,22 +513,58 @@ impl Parse for Route {
 
 impl Route {
     fn parse_args(mut tokens: TokenStream) -> Result<Vec<RouteArg>, ParseError> {
-        let mut out = Vec::new();
+        let mut out = Vec::<RouteArg>::new();
+
+        let mut default_span = None;
 
         loop {
             if tokens.is_empty() {
                 break;
             }
-            let name = tokens.parse()?;
+            let name: Ident = tokens.parse()?;
+
+            for e in &out {
+                if e.name.inner == name.inner {
+                    return Err(ParseError::DuplicateRouteArg {
+                        name: name.inner.to_string(),
+                        previous: e.name.span,
+                        current: name.span,
+                    });
+                }
+            }
 
             let mut la = tokens.lookahead();
             let default = if la.peek(Punct::Eq) {
-                let _eq = tokens.next().unwrap();
-                Some(tokens.parse()?)
+                let eq = tokens.next().unwrap();
+                let default: Expr = tokens.parse()?;
+
+                default_span = Some(eq.span + default.span);
+
+                let mut la = tokens.lookahead();
+                if la.peek(Punct::Comma) {
+                    let _ = tokens.next().unwrap();
+                } else if la.eof("End of args") {
+                } else {
+                    return la.error();
+                }
+
+                Some(default)
             } else if la.peek(Punct::Comma) {
+                if let Some(default_span) = default_span {
+                    return Err(ParseError::ExpectedDefault {
+                        span: name.span,
+                        default_span,
+                    });
+                }
                 let _comma = tokens.next().unwrap();
                 None
             } else if la.eof("End of args") {
+                if let Some(default_span) = default_span {
+                    return Err(ParseError::ExpectedDefault {
+                        span: name.span,
+                        default_span,
+                    });
+                }
                 None
             } else {
                 return la.error();

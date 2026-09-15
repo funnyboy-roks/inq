@@ -5,7 +5,7 @@ use std::{
 
 use miette::SourceSpan;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Span {
     start: usize,
     end: usize,
