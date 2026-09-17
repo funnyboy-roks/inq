@@ -199,6 +199,10 @@ impl Ident {
         matches!(chars.next(), Some('a'..='z' | 'A'..='Z' | '_'))
             && chars.all(|c| matches!(c, 'a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
     }
+
+    pub fn as_istr(&self) -> IStr {
+        self.inner.clone()
+    }
 }
 
 impl PartialEq<&str> for Ident {

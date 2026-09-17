@@ -10,7 +10,7 @@ pub(crate) fn run(
     _cli: &Cli,
     var_cmd: &VariableCommand,
     _config: Config,
-    state: Rc<RefCell<State>>,
+    state: &mut State,
 ) -> miette::Result<()> {
     // TODO(refactor)
     todo!();

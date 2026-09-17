@@ -1,8 +1,8 @@
 use std::{cell::RefCell, rc::Rc, str::FromStr, time::Instant};
 
 use inq_lang::{
-    IStr,
-    eval::{EvalError, Special, value::ValueRef},
+    IStr, Route,
+    eval::{EvalError, Scope, Special, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use reqwest::{Url, blocking::Request};
@@ -16,7 +16,7 @@ use crate::{
     util::ToReqwest,
 };
 
-fn list_routes(cli: &Cli, config: Rc<Config>, state: Rc<RefCell<State>>) -> miette::Result<()> {
+fn list_routes(config: Config) -> miette::Result<()> {
     if config.routes.is_empty() {
         bail!("No routes defined");
     }
@@ -38,7 +38,7 @@ fn list_routes(cli: &Cli, config: Rc<Config>, state: Rc<RefCell<State>>) -> miet
         use owo_colors::OwoColorize as _;
         println!(
             "{:<name_len$}  {:<method_len$}  {}",
-            route.name.blue().bold(),
+            route.name.to_string().blue().bold(),
             route.method.as_str().yellow(),
             route.endpoint.green()
         );
@@ -47,17 +47,50 @@ fn list_routes(cli: &Cli, config: Rc<Config>, state: Rc<RefCell<State>>) -> miet
     Ok(())
 }
 
-pub(crate) fn run(
-    _cli: &Cli,
-    route_cmd: &RouteCommand,
-    config: Rc<Config>,
-    state: Rc<RefCell<State>>,
-) -> miette::Result<()> {
-    // let Some(route) = &route_cmd.route else {
-    //     return list_routes(cli, config, state);
-    // };
+fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, miette::Error> {
+    let url = route.endpoint_eval(scope)?;
+    let url = if let Some((scheme, _)) = url.split_once("://")
+        && scheme.chars().all(|c| c.is_ascii_alphabetic())
+    {
+        Url::from_str(&url).map_err(|e| {
+            miette::miette! {
+                labels = vec![route.endpoint.span.with_label("here")],
+                "Unable to parse url: {}", e
+            }
+        })?
+    } else if let Some(base_url) = config.engine.global().get_variable("BASE_URL")? {
+        if let Some(base_url) = base_url.downcast::<IStr>() {
+            let string = format!("{}{}", base_url, url);
+            Url::from_str(&string).map_err(|e| {
+                miette::miette! {
+                    labels = vec![route.endpoint.span.with_label("here")],
+                    "Unable to parse url: {}", e
+                }
+            })?
+        } else {
+            // TODO: span
+            bail!("BASE_URL must be a string");
+        }
+    } else {
+        miette::bail! {
+            labels = vec![route.endpoint.span.with_label("here")],
+            "URL scheme or BASE_URL must be speicifed",
+        }
+    };
+    Ok(url)
+}
 
-    let route = config.expect_route(&route_cmd.route)?;
+pub(crate) fn run(
+    _: &Cli,
+    route_cmd: &RouteCommand,
+    config: Config,
+    state: &mut State,
+) -> miette::Result<()> {
+    let Some(route) = &route_cmd.route else {
+        return list_routes(config);
+    };
+
+    let route = config.expect_route(route)?;
     let scope = config.engine.global().make_child();
 
     for (arg, value) in route.args.iter().zip(
@@ -87,35 +120,7 @@ pub(crate) fn run(
         scope.set_variable(arg.name.as_ref(), IStr::from(value), true);
     }
 
-    let url = route.endpoint_eval(&scope)?;
-    let url = if let Some((scheme, _)) = url.split_once("://")
-        && scheme.chars().all(|c| c.is_ascii_alphabetic())
-    {
-        Url::from_str(&url).map_err(|e| {
-            miette::miette! {
-                labels = vec![route.endpoint.span.with_label("here")],
-                "Unable to parse url: {}", e
-            }
-        })?
-    } else if let Some(base_url) = config.engine.global().get_variable("BASE_URL")? {
-        if let Some(base_url) = base_url.downcast::<IStr>() {
-            let string = format!("{}{}", base_url, url);
-            Url::from_str(&string).map_err(|e| {
-                miette::miette! {
-                    labels = vec![route.endpoint.span.with_label("here")],
-                    "Unable to parse url: {}", e
-                }
-            })?
-        } else {
-            // TODO: span
-            bail!("BASE_URL must be a string");
-        }
-    } else {
-        miette::bail! {
-            labels = vec![route.endpoint.span.with_label("here")],
-            "URL scheme or BASE_URL must be speicifed",
-        }
-    };
+    let url = parse_url(&config, route, &scope)?;
 
     let request = Rc::new(RefCell::new(RequestValue::new(
         route.method.to_reqwest(),
@@ -142,7 +147,7 @@ pub(crate) fn run(
 
     let res = ResponseValue::try_from(res)?;
 
-    print_response(&res, elapsed, false /*route_cmd.raw*/)?;
+    print_response(&res, elapsed, route_cmd.raw)?;
 
     if let Some(ref after) = route.after {
         let scope = scope.make_child();
@@ -150,6 +155,8 @@ pub(crate) fn run(
 
         scope.eval(after.clone().into())?;
     }
+
+    state.update_variables(&config)?;
 
     Ok(())
 }

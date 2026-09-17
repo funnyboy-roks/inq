@@ -404,11 +404,21 @@ impl Display for TokenTree {
 pub enum LexError {
     #[error("Expected {}, got EOF", _0)]
     UnexpectedEof(String),
+    #[error("Unexpected EOF while matching {}", matching)]
+    UnexpectedEofWhileMatching {
+        #[label = "here"]
+        here: Span,
+        matching: char,
+        #[label = "While matching this"]
+        matching_span: Span,
+    },
     #[error("Unexpected Character '{}'", actual)]
     UnexpectedCharacter {
         actual: char,
         #[label = "here"]
         position: Span,
+        #[label = "might match this"]
+        matches: Option<Span>,
     },
     #[error("Invalid integer literal: {}", source)]
     InvalidInteger {
@@ -441,6 +451,7 @@ enum NextTT {
 pub struct Lexer<'a> {
     content: &'a str,
     position: usize,
+    group_stack: Vec<(char, char, Span)>,
 }
 
 impl<'a> Lexer<'a> {
@@ -448,6 +459,7 @@ impl<'a> Lexer<'a> {
         Lexer {
             content,
             position: 0,
+            group_stack: Vec::new(),
         }
     }
 
@@ -630,7 +642,7 @@ impl<'a> Lexer<'a> {
                         });
                     }
                     Some('{') => {
-                        let tokens = self.take_group('}')?;
+                        let tokens = self.take_group('{', '}')?;
                         interpolations.push(Interpolation {
                             index: value.len(),
                             tokens,
@@ -640,6 +652,11 @@ impl<'a> Lexer<'a> {
                         return Err(LexError::UnexpectedCharacter {
                             actual: c,
                             position: (self.position..self.position + c.len_utf8()).into(),
+                            matches: self
+                                .group_stack
+                                .iter()
+                                .rfind(|&&(_, end, _)| end == c)
+                                .map(|&(_, _, span)| span),
                         });
                     }
                     None => {
@@ -663,12 +680,20 @@ impl<'a> Lexer<'a> {
         self.position += rest.find('\n').unwrap_or(rest.len());
     }
 
-    fn take_group(&mut self, close: char) -> Result<TokenStream, LexError> {
+    fn take_group(&mut self, matching: char, close: char) -> Result<TokenStream, LexError> {
         let start = self.position - 1;
+        let matching_span = (start..self.position).into();
+        self.group_stack.push((matching, close, matching_span));
         let mut tokens = VecDeque::new();
         loop {
             self.skip_whitespace();
-            let c = self.expect_char()?;
+            let c = self
+                .take_char()
+                .ok_or_else(|| LexError::UnexpectedEofWhileMatching {
+                    here: (self.position - 1..self.position).into(),
+                    matching,
+                    matching_span,
+                })?;
             if c == close {
                 break;
             }
@@ -680,6 +705,10 @@ impl<'a> Lexer<'a> {
                 NextTT::Comment => continue,
             }
         }
+        assert_eq!(
+            self.group_stack.pop(),
+            Some((matching, close, matching_span))
+        );
         Ok(TokenStream {
             inner: tokens,
             span: (start..self.position).into(),
@@ -702,15 +731,15 @@ impl<'a> Lexer<'a> {
             }
             ('(', _) => TokenTreeInner::Group {
                 delim: GroupDelim::Paren,
-                tokens: self.take_group(')')?,
+                tokens: self.take_group('(', ')')?,
             },
             ('{', _) => TokenTreeInner::Group {
                 delim: GroupDelim::Brace,
-                tokens: self.take_group('}')?,
+                tokens: self.take_group('{', '}')?,
             },
             ('[', _) => TokenTreeInner::Group {
                 delim: GroupDelim::Bracket,
-                tokens: self.take_group(']')?,
+                tokens: self.take_group('[', ']')?,
             },
             (c @ ('a'..='z' | 'A'..='Z' | '_'), _) => {
                 self.untake_char(c);
@@ -731,6 +760,11 @@ impl<'a> Lexer<'a> {
                     return Err(LexError::UnexpectedCharacter {
                         actual: c,
                         position: (self.position..self.position + c.len_utf8()).into(),
+                        matches: self
+                            .group_stack
+                            .iter()
+                            .rfind(|&&(_, end, _)| end == c)
+                            .map(|&(_, _, span)| span),
                     });
                 }
             }

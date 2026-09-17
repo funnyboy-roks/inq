@@ -1,6 +1,7 @@
 use std::{borrow::Borrow, cell::RefCell, collections::HashSet, ops::Deref, sync::Arc};
 
 use derive_more::Display;
+use serde::{Deserialize, Serialize};
 
 thread_local! {
     static STRINGS: RefCell<HashSet<Arc<str>>> = RefCell::new(HashSet::new());
@@ -45,6 +46,24 @@ impl IStr {
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+}
+
+impl Serialize for IStr {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.as_str().serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for IStr {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Ok(Self::from(String::deserialize(deserializer)?))
     }
 }
 

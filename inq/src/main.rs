@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use clap::Parser;
 
@@ -18,14 +18,14 @@ mod util;
 
 fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let config = Config::load(config_str)?;
-    let state = Rc::new(RefCell::new(State::load(&cli.config)?));
+    let mut state = State::load(&cli.config)?;
 
     match &cli.subcmd {
-        SubCmd::Route(s) => cli::route::run(&cli, s, Rc::new(config), Rc::clone(&state))?,
-        SubCmd::Variable(s) => cli::variable::run(&cli, s, config, Rc::clone(&state))?,
+        SubCmd::Route(s) => cli::route::run(&cli, s, config, &mut state)?,
+        SubCmd::Variable(s) => cli::variable::run(&cli, s, config, &mut state)?,
     };
 
-    state.borrow_mut().save(&cli.config)?;
+    state.save(&cli.config)?;
 
     Ok(())
 }

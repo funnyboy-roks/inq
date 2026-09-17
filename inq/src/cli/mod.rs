@@ -31,10 +31,12 @@ impl Variable {
 #[derive(Debug, Parser)]
 pub struct RouteCommand {
     /// Print the raw body of the response
-    // TODO(refactor):
-    // #[clap(short, long)]
-    // pub raw: bool,
-    pub route: String,
+    #[clap(short, long)]
+    pub raw: bool,
+    pub route: Option<String>,
+    /// Arguments to pass to the route
+    ///
+    /// Optional arguments (those with `= <value>`) may be omitted
     pub args: Vec<String>,
 }
 

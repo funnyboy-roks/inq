@@ -539,7 +539,7 @@ impl Expr {
             } else if lhs_statement {
                 break;
             } else {
-                return la.error_expected(["Operator"]);
+                return la.error_expected([&*Punct::Semicolon.to_string(), "Operator"]);
             }
 
             if let Some((l_bp, ())) = PostfixOp::bp(tokens.peek().expect("checked in la")) {
