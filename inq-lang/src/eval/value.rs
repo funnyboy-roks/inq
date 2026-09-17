@@ -176,7 +176,9 @@ pub trait Value: Any + Debug {
     /// once returned.
     fn snapshot(&self) -> Rc<RefCell<dyn Value>>;
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
-    fn truthy(&self) -> bool;
+    fn truthy(&self) -> bool {
+        true
+    }
 
     fn register(registry: &mut Registry<Self>)
     where

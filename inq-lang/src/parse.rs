@@ -425,6 +425,16 @@ impl Parse for Path {
     }
 }
 
+impl Path {
+    pub fn span(&self) -> Span {
+        self.0
+            .iter()
+            .map(|i| i.span)
+            .reduce(|a, b| a + b)
+            .unwrap_or(Span::empty())
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct RouteArg {
     pub name: Ident,
@@ -614,7 +624,8 @@ pub struct Parser {
 }
 
 impl Parser {
-    pub fn new(lexer: Lexer<'_>) -> Result<Self, LexError> {
+    pub fn new(content: &str) -> Result<Self, LexError> {
+        let lexer = Lexer::new(content);
         Ok(Self {
             tokens: lexer.all()?,
         })

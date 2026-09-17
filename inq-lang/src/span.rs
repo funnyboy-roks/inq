@@ -3,7 +3,7 @@ use std::{
     ops::{Add, Range},
 };
 
-use miette::SourceSpan;
+use miette::{LabeledSpan, SourceSpan};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Span {
@@ -14,6 +14,10 @@ pub struct Span {
 impl Span {
     pub fn empty() -> Self {
         Self { start: 0, end: 0 }
+    }
+
+    pub fn with_label(self, label: impl Into<String>) -> LabeledSpan {
+        LabeledSpan::new_with_span(Some(label.into()), self)
     }
 }
 

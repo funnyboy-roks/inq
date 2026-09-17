@@ -11,20 +11,18 @@ use crate::{
 mod cli;
 mod config;
 mod decode;
-mod parse;
 mod print;
 mod script;
 mod state;
 mod util;
 
 fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
-    let config = Config::parse(config_str.parse()?)?;
+    let config = Config::load(config_str)?;
     let state = Rc::new(RefCell::new(State::load(&cli.config)?));
 
     match &cli.subcmd {
-        SubCmd::Query(s) => cli::query::run(&cli, s, Rc::new(config), Rc::clone(&state))?,
+        SubCmd::Route(s) => cli::route::run(&cli, s, Rc::new(config), Rc::clone(&state))?,
         SubCmd::Variable(s) => cli::variable::run(&cli, s, config, Rc::clone(&state))?,
-        SubCmd::Parse(s) => cli::parse::run(&cli, s, config, Rc::clone(&state))?,
     };
 
     state.borrow_mut().save(&cli.config)?;

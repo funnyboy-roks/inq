@@ -1,5 +1,5 @@
 let port = 3000;
-let host = env("HOST") || "example.com";
+let host = env("HOST") || "localhost";
 let BASE_URL = "http://$host${ if port == 443 then "" else ":$port" }";
 
 #[persist]

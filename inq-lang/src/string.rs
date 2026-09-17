@@ -126,6 +126,22 @@ impl Borrow<str> for IStr {
     }
 }
 
+pub trait StringExt {
+    fn intern(&self) -> IStr;
+}
+
+impl StringExt for String {
+    fn intern(&self) -> IStr {
+        IStr::from(&**self)
+    }
+}
+
+impl StringExt for str {
+    fn intern(&self) -> IStr {
+        IStr::from(self)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::{IStr, STRINGS};

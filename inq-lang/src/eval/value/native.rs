@@ -1,4 +1,6 @@
-use std::{borrow::Cow, cell::RefCell, cmp::Ordering, collections::BTreeMap, fmt::Debug, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering, fmt::Debug, rc::Rc};
+
+use indexmap::IndexMap;
 
 use crate::{
     Span,
@@ -379,7 +381,7 @@ impl Value for Array {
 }
 
 #[derive(Debug, Clone)]
-pub struct Object(pub BTreeMap<IStr, ValueRef>);
+pub struct Object(pub IndexMap<IStr, ValueRef>);
 impl Value for Object {
     fn type_name() -> Cow<'static, str>
     where
@@ -441,7 +443,22 @@ impl Value for Object {
         registry.register_index_get_set(
             |_, this, idx: &IStr| this.0.get(&**idx).cloned().unwrap_or_else(ValueRef::null),
             |_, this, idx: &IStr, value| {
-                this.0.insert((&**idx).into(), value);
+                this.0.insert(idx.clone(), value);
+            },
+        );
+        registry.register_field_get_set_fallback(
+            |_, this, field| {
+                if let Some(value) = this.0.get(&field.inner).cloned() {
+                    Ok(value)
+                } else {
+                    Err(EvalError::UnknownField {
+                        ty: this.type_name_of().into(),
+                        field,
+                    })
+                }
+            },
+            |_, this, field, value| {
+                this.0.insert(field.inner, value);
             },
         );
     }

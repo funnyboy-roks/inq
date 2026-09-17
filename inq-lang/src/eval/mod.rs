@@ -2,15 +2,17 @@ use std::{
     any::TypeId,
     cell::{OnceCell, Ref, RefCell},
     cmp::Ordering,
-    collections::{BTreeMap, HashMap, hash_map::Entry},
+    collections::{HashMap, hash_map::Entry},
     ops::Not,
     rc::Rc,
 };
 
+mod ext;
 pub(crate) mod lazy;
 pub mod registry;
 pub mod value;
 
+use indexmap::IndexMap;
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -18,9 +20,7 @@ use crate::{
     IStr, Span,
     eval::{
         lazy::LazyValueRef,
-        registry::{
-            AnyRegistry, BinOp, DynMethod, Field, GetIndexCtx, Indexer, Registry, UnaryOp, VarArgs,
-        },
+        registry::{AnyRegistry, BinOp, DynMethod, Indexer, Registry, UnaryOp, VarArgs},
         value::{
             CallContext, Value, ValueRef,
             native::{Array, Float, Int, Null, Object},
@@ -33,7 +33,7 @@ use crate::{
 
 use super::expr::{InfixOp, Lit, ObjectField};
 
-#[derive(Debug, Clone, Error, Diagnostic)]
+#[derive(Debug, Error, Diagnostic)]
 pub enum EvalError {
     #[error("Unknown field '{}' on type {}", field, ty)]
     UnknownField {
@@ -172,6 +172,15 @@ pub enum EvalError {
         #[label = "here"]
         span: Span,
     },
+    #[error("{}", _0)]
+    #[diagnostic(transparent)]
+    Transparent(miette::Error),
+}
+
+impl From<miette::Report> for EvalError {
+    fn from(value: miette::Report) -> Self {
+        Self::Transparent(value)
+    }
 }
 
 pub type EvalResult<T> = Result<T, EvalError>;
@@ -248,17 +257,6 @@ impl Engine {
     fn get_type(&self, value: &ValueRef, span: Span) -> EvalResult<Rc<AnyRegistry>> {
         let types = self.types();
         types.get(value, span)
-    }
-
-    fn get_field(&self, value: &ValueRef, span: Span, field: &Ident) -> EvalResult<Field> {
-        let types = self.types();
-        let reg = types.get(value, span)?;
-        reg.get_field(&field.inner)
-            .cloned()
-            .ok_or_else(|| EvalError::UnknownField {
-                ty: value.type_name_of().into(),
-                field: field.clone(),
-            })
     }
 
     fn get_method(
@@ -353,22 +351,22 @@ impl Scope {
         this.into()
     }
 
-    pub(crate) fn get_variable(&self, name: &str) -> Option<EvalResult<ValueRef>> {
+    pub fn get_variable(&self, name: &str) -> EvalResult<Option<ValueRef>> {
         let vars = self.variables.borrow();
         if let Some(var) = vars.get(name) {
-            Some(var.get())
+            Ok(Some(var.get()?))
         } else if let Some(parent) = &self.parent {
             parent.get_variable(name)
         } else {
-            None
+            Ok(None)
         }
     }
 
     pub(crate) fn expect_variable(&self, ident: &Ident) -> EvalResult<ValueRef> {
-        self.get_variable(ident.as_ref())
+        self.get_variable(ident.as_ref())?
             .ok_or(EvalError::UndefinedVariable {
                 ident: ident.clone(),
-            })?
+            })
     }
 
     /// Returns true if the variable already existed in the current scope
@@ -468,7 +466,7 @@ impl Scope {
                 .request()
                 .ok_or(EvalError::RequestInBadPosition { span: expr.span }),
             Ast::Response => self
-                .request()
+                .response()
                 .ok_or(EvalError::ResponseInBadPosition { span: expr.span }),
             Ast::PrefixOp {
                 op,
@@ -513,17 +511,23 @@ impl Scope {
                             let obj = self.eval(*value)?;
                             let value = self.eval(rhs)?;
 
-                            let field = self.engine.get_field(&obj, value_span, &name)?;
-                            let setter =
-                                field
-                                    .setter
-                                    .as_ref()
-                                    .ok_or_else(|| EvalError::ReadonlyField {
+                            let reg = self.engine.get_type(&obj, value_span)?;
+                            if let Some(field) = reg.get_field(&name.inner) {
+                                if let Some(ref setter) = field.setter {
+                                    setter.set(value, CallContext::new(name.span, obj))?;
+                                } else {
+                                    return Err(EvalError::ReadonlyField {
                                         ty: value.type_name_of().into(),
                                         field: name.clone(),
-                                    })?;
-
-                            setter.set(value, CallContext::new(name.span, obj))?;
+                                    });
+                                }
+                            } else {
+                                reg.field_set_fallback.set(
+                                    CallContext::new(name.span, obj),
+                                    name,
+                                    value,
+                                )?;
+                            }
 
                             Ok(ValueRef::null())
                         }
@@ -662,10 +666,15 @@ impl Scope {
             }
             Ast::FieldAccess { value, field } => {
                 let value_span = value.span;
-                let value = self.eval(*value)?;
+                let obj = self.eval(*value)?;
                 let span = field.span;
-                let getter = &self.engine.get_field(&value, value_span, &field)?.getter;
-                getter.get(CallContext::new(span, value))
+                let reg = self.engine.get_type(&obj, value_span)?;
+                if let Some(field) = reg.get_field(&field.inner) {
+                    field.getter.get(CallContext::new(span, obj))
+                } else {
+                    reg.field_get_fallback
+                        .get(CallContext::new(field.span, obj), field)
+                }
             }
             Ast::MethodCall {
                 value,
@@ -736,7 +745,7 @@ impl Scope {
                 .collect::<Result<Vec<_>, _>>()?
                 .into()),
             Ast::ObjectLiteral { fields } => {
-                let mut inner = BTreeMap::<IStr, ValueRef>::new();
+                let mut inner = IndexMap::<IStr, ValueRef>::new();
                 for f in fields {
                     let (k, v) = match f {
                         ObjectField::Ident(ident) => {

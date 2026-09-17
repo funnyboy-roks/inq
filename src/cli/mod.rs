@@ -3,8 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 
-pub(crate) mod parse;
-pub(crate) mod query;
+pub(crate) mod route;
 pub(crate) mod variable;
 
 #[derive(Debug, Clone)]
@@ -30,19 +29,13 @@ impl Variable {
 }
 
 #[derive(Debug, Parser)]
-pub struct QueryCommand {
+pub struct RouteCommand {
     /// Print the raw body of the response
-    #[clap(short, long)]
-    pub raw: bool,
-    #[clap(short, long, value_parser = Variable::parse)]
-    var: Vec<Variable>,
-    pub query: Option<String>,
-}
-
-impl QueryCommand {
-    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
-        self.var.iter().find(|v| v.name == name).map(|s| &*s.value)
-    }
+    // TODO(refactor):
+    // #[clap(short, long)]
+    // pub raw: bool,
+    pub route: String,
+    pub args: Vec<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -70,36 +63,19 @@ pub struct VariableCommand {
     pub command: VariableSubCmd,
 }
 
-#[derive(Debug, Parser)]
-pub struct ParseCommand {
-    pub file: PathBuf,
-    pub args: Vec<String>,
-}
-
 #[derive(Debug, Subcommand)]
 pub enum SubCmd {
     /// Execute a query
-    #[clap(alias = "q")]
-    Query(QueryCommand),
+    #[clap(alias = "r", alias = "q", alias = "query")]
+    Route(RouteCommand),
     /// Manipulate persisted variables
     #[clap(alias = "var")]
     Variable(VariableCommand),
-    Parse(ParseCommand),
-}
-
-impl SubCmd {
-    pub fn get_variable(&self, name: &'_ str) -> Option<&str> {
-        match self {
-            SubCmd::Query(query_command) => query_command.get_variable(name),
-            SubCmd::Variable(_) => None,
-            SubCmd::Parse(_) => None,
-        }
-    }
 }
 
 #[derive(Debug, Parser)]
 pub struct Cli {
-    #[clap(short, long, default_value = "inq.kdl")]
+    #[clap(short, long, default_value = "main.inq")]
     pub config: PathBuf,
     #[clap(subcommand)]
     pub subcmd: SubCmd,

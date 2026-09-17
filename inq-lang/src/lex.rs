@@ -10,7 +10,7 @@ use thiserror::Error;
 
 use crate::{IStr, Span};
 
-pub trait TokenKind {
+pub(crate) trait TokenKind {
     fn matches(&self, tt: &TokenTree) -> bool;
     fn name(&self) -> &'static str;
 }
@@ -128,7 +128,7 @@ impl Display for Punct {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct AnyMethod;
+pub(crate) struct AnyMethod;
 
 impl TokenKind for AnyMethod {
     fn matches(&self, tt: &TokenTree) -> bool {
@@ -154,7 +154,7 @@ pub enum Method {
 }
 
 impl Method {
-    const fn as_str(self) -> &'static str {
+    pub const fn as_str(self) -> &'static str {
         match self {
             Method::Get => "GET",
             Method::Head => "HEAD",
@@ -195,7 +195,7 @@ impl TokenKind for Method {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Keyword {
+pub(crate) enum Keyword {
     Let,
     If,
     Then,

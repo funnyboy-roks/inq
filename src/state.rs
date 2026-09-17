@@ -1,76 +1,10 @@
-use std::{
-    collections::HashMap,
-    fmt::Write,
-    io::BufWriter,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
 use miette::Context;
-use rhai::{CustomType, TypeBuilder};
 use serde::{Deserialize, Serialize};
 
-use crate::util::DATETIME_FORMAT;
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct PersistedVariable {
-    pub value: String,
-    pub expires_at: Option<DateTime<Utc>>,
-}
-
-impl PersistedVariable {
-    pub fn debug<W>(&self, mut out: W) -> Result<W, std::fmt::Error>
-    where
-        W: Write,
-    {
-        write!(out, "PersistedVariable {{ value: {:?}", self.value)?;
-
-        if let Some(expires) = self.expires_at {
-            write!(
-                out,
-                ", expires_at: {}",
-                expires
-                    .with_timezone(&chrono::Local)
-                    .format(DATETIME_FORMAT)
-            )?;
-        }
-
-        write!(out, " }}")?;
-
-        Ok(out)
-    }
-}
-
-impl CustomType for PersistedVariable {
-    fn build(mut builder: TypeBuilder<Self>) {
-        builder
-            .on_debug(|this: &mut Self| {
-                this.debug(String::new())
-                    .expect("Write to string can't fail")
-            })
-            .with_name("PersistedVariable")
-            .with_get_set(
-                "value",
-                |persisted: &mut PersistedVariable| persisted.value.clone(),
-                |persisted: &mut PersistedVariable, value: String| {
-                    persisted.value = value;
-                },
-            )
-            .with_get_set(
-                "expires_at",
-                |persisted: &mut PersistedVariable| persisted.expires_at,
-                |persisted: &mut PersistedVariable, value: Option<DateTime<Utc>>| {
-                    persisted.expires_at = value;
-                },
-            );
-    }
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct State {
-    /// contents of .inq/variables.json
-    pub variables: HashMap<String, PersistedVariable>,
-}
+pub struct State {}
 
 impl State {
     fn data_dir(config_path: &Path) -> miette::Result<PathBuf> {
@@ -80,42 +14,29 @@ impl State {
     }
 
     pub fn load(config_path: impl AsRef<Path>) -> miette::Result<Self> {
-        let data_dir = Self::data_dir(config_path.as_ref())?;
-
-        let mut this = Self {
-            variables: HashMap::new(),
-        };
-
-        let variables_json = data_dir.join("variables.json");
-        if variables_json.exists() {
-            let variables_json = std::fs::read_to_string(&variables_json)
-                .map_err(|e| miette::miette!("Error opening {:?}: {}", variables_json, e))?;
-            this.variables = serde_json::from_str(&variables_json)
-                .map_err(|e| miette::miette!("Error parsing {:?}: {}", variables_json, e))?;
-        }
-
-        Ok(this)
+        Ok(Self {})
     }
 
     pub fn save(&self, config_path: impl AsRef<Path>) -> miette::Result<()> {
-        let data_dir = Self::data_dir(config_path.as_ref())?;
+        todo!();
+        // let data_dir = Self::data_dir(config_path.as_ref())?;
 
-        let dir_existed = data_dir.exists();
+        // let dir_existed = data_dir.exists();
 
-        std::fs::create_dir_all(&data_dir)
-            .map_err(|e| miette::miette!("Error creating {:?}: {}", data_dir, e))?;
+        // std::fs::create_dir_all(&data_dir)
+        //     .map_err(|e| miette::miette!("Error creating {:?}: {}", data_dir, e))?;
 
-        if !dir_existed {
-            std::fs::write(data_dir.join(".gitignore"), "*\n")
-                .map_err(|e| miette::miette!("Error writing .inq/.gitignore: {}", e))?;
-        }
+        // if !dir_existed {
+        //     std::fs::write(data_dir.join(".gitignore"), "*\n")
+        //         .map_err(|e| miette::miette!("Error writing .inq/.gitignore: {}", e))?;
+        // }
 
-        let variables = data_dir.join("variables.json");
-        let variables = std::fs::File::create(variables)
-            .map_err(|e| miette::miette!("Error creating .inq/variables.json: {}", e))?;
-        let variables = BufWriter::new(variables);
-        serde_json::to_writer_pretty(variables, &self.variables)
-            .map_err(|e| miette::miette!("Error writing .inq/variables.json: {}", e))?;
+        // let variables = data_dir.join("variables.json");
+        // let variables = std::fs::File::create(variables)
+        //     .map_err(|e| miette::miette!("Error creating .inq/variables.json: {}", e))?;
+        // let variables = BufWriter::new(variables);
+        // serde_json::to_writer_pretty(variables, &self.variables)
+        //     .map_err(|e| miette::miette!("Error writing .inq/variables.json: {}", e))?;
 
         Ok(())
     }

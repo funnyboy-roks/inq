@@ -4,11 +4,11 @@ use std::{
 };
 
 use crate::{
-    Span,
     eval::{
         Engine, EvalError, EvalResult,
         value::{CallContext, Value, ValueRef},
     },
+    parse::Ident,
 };
 
 macro_rules! count {
@@ -16,6 +16,13 @@ macro_rules! count {
         const { ["",$(stringify!($tt)),*].len() - 1 }
     };
 }
+
+mod field;
+pub use field::*;
+mod index;
+pub use index::*;
+mod method;
+pub use method::*;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, derive_more::Display)]
 pub enum BinOp {
@@ -228,230 +235,6 @@ impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(V) -> EvalResult<Ret> 
     }
 }
 
-pub trait DynMethod {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef>;
-}
-
-impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod for fn(&mut T, V) -> EvalResult<Ret> {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let args = V::from_varargs(&ctx, varargs)?;
-        self(this, args).map(Into::into)
-    }
-}
-impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod for fn(&mut T, V) -> Ret {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let args = V::from_varargs(&ctx, varargs)?;
-        Ok(self(this, args).into())
-    }
-}
-impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod
-    for fn(CallContext, &mut T, V) -> EvalResult<Ret>
-{
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let args = V::from_varargs(&ctx, varargs)?;
-        self(ctx, this, args).map(Into::into)
-    }
-}
-impl<T: Value, V: FromVarArgs, Ret: Into<ValueRef>> DynMethod
-    for fn(CallContext, &mut T, V) -> Ret
-{
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let args = V::from_varargs(&ctx, varargs)?;
-        Ok(self(ctx, this, args).into())
-    }
-}
-impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(&mut T) -> EvalResult<Ret> {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let () = <()>::from_varargs(&ctx, varargs)?;
-        self(this).map(Into::into)
-    }
-}
-impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(&mut T) -> Ret {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let () = <()>::from_varargs(&ctx, varargs)?;
-        Ok(self(this).into())
-    }
-}
-impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(CallContext, &mut T) -> EvalResult<Ret> {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let () = <()>::from_varargs(&ctx, varargs)?;
-        self(ctx, this).map(Into::into)
-    }
-}
-impl<T: Value, Ret: Into<ValueRef>> DynMethod for fn(CallContext, &mut T) -> Ret {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let mut this = this.borrow_mut();
-        let this = this.unwrap_mut::<T>();
-        let () = <()>::from_varargs(&ctx, varargs)?;
-        Ok(self(ctx, this).into())
-    }
-}
-
-pub trait Method<T>: DynMethod {}
-
-impl<T: Value, V, R> Method<T> for fn(&mut T, V) -> R where Self: DynMethod {}
-impl<T: Value, V, R> Method<T> for fn(CallContext, &mut T, V) -> R where Self: DynMethod {}
-impl<T: Value, R> Method<T> for fn(CallContext, &mut T) -> R where Self: DynMethod {}
-impl<T: Value, R> Method<T> for fn(&mut T) -> R where Self: DynMethod {}
-
-pub trait Getter {
-    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef>;
-}
-
-pub trait Setter {
-    fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()>;
-}
-
-impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> R {
-    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let x = this.borrow();
-        let this = x.unwrap_ref::<T>();
-
-        Ok(self(ctx, this).into())
-    }
-}
-impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> EvalResult<R> {
-    fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let x = this.borrow();
-        let this = x.unwrap_ref::<T>();
-
-        Ok(self(ctx, this)?.into())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct GetIndexCtx {
-    pub index_span: Span,
-}
-
-pub trait IndexGetter {
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef>;
-}
-
-impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
-    for fn(CallContext<GetIndexCtx>, &T, &I) -> R
-{
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let x = this.borrow();
-        let this = x.unwrap_ref::<T>();
-
-        let x = index.borrow();
-        let idx = x.unwrap_ref::<I>();
-
-        Ok(self(ctx, this, idx).into())
-    }
-}
-impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
-    for fn(CallContext<GetIndexCtx>, &T, &I) -> EvalResult<R>
-{
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
-        let this = ctx.self_ref.clone();
-        let x = this.borrow();
-        let this = x.unwrap_ref::<T>();
-
-        let x = index.borrow();
-        let idx = x.unwrap_ref::<I>();
-
-        Ok(self(ctx, this, idx)?.into())
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct SetIndexCtx {
-    pub rhs_span: Span,
-    pub index_span: Span,
-}
-
-pub trait IndexSetter {
-    fn set(
-        &self,
-        index: ValueRef,
-        value: ValueRef,
-        ctx: CallContext<SetIndexCtx>,
-    ) -> EvalResult<()>;
-}
-
-impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> () {
-    fn set(
-        &self,
-        index: ValueRef,
-        value: ValueRef,
-        ctx: CallContext<SetIndexCtx>,
-    ) -> EvalResult<()> {
-        let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
-
-        let x = index.borrow();
-        let idx = x.unwrap_ref::<I>();
-
-        self(ctx, this, idx, value);
-        Ok(())
-    }
-}
-impl<T: Value, I: Value> IndexSetter
-    for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> EvalResult<()>
-{
-    fn set(
-        &self,
-        index: ValueRef,
-        value: ValueRef,
-        ctx: CallContext<SetIndexCtx>,
-    ) -> EvalResult<()> {
-        let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
-
-        let x = index.borrow();
-        let idx = x.unwrap_ref::<I>();
-
-        self(ctx, this, idx, value)
-    }
-}
-
-impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) -> EvalResult<()> {
-    fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
-        let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
-        self(ctx, this, value)
-    }
-}
-impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) {
-    fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
-        let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
-        self(ctx, this, value);
-        Ok(())
-    }
-}
-
 pub trait BinOpFunction {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef>;
 }
@@ -641,10 +424,15 @@ pub struct Registry<T> {
 
 #[derive(derive_more::Debug)]
 pub(crate) struct AnyRegistry {
+    #[debug("..")]
     engine: Rc<Engine>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     methods: HashMap<&'static str, Rc<dyn DynMethod>>,
     fields: HashMap<&'static str, Field>,
+    #[debug("{}", if call.is_some() { "Some(..)" } else { "None" })]
+    pub(crate) field_get_fallback: Rc<dyn FieldGetFallback>,
+    #[debug("{}", if call.is_some() { "Some(..)" } else { "None" })]
+    pub(crate) field_set_fallback: Rc<dyn FieldSetFallback>,
     /// (op, none) -> lhs <op> Any Value
     /// (op, Some(rhs)) -> lhs <op> rhs
     #[debug("{:?}", bin_ops.keys().collect::<Vec<_>>())]
@@ -694,11 +482,13 @@ impl<T: Value> Registry<T> {
                 engine,
                 methods: Default::default(),
                 fields: Default::default(),
+                field_get_fallback: Rc::new(UnknownField),
+                field_set_fallback: Rc::new(UnknownField),
                 bin_ops: Default::default(),
                 unary_ops: Default::default(),
+                cmps: Default::default(),
                 call: Default::default(),
                 indexers: Default::default(),
-                cmps: Default::default(),
             },
             _p: PhantomData,
         }
@@ -759,6 +549,25 @@ impl<T: Value> Registry<T> {
                 setter: Some(Rc::new(setter)),
             },
         );
+    }
+
+    pub fn register_field_get_fallback<Ret>(&mut self, func: fn(CallContext, &T, Ident) -> Ret)
+    where
+        fn(CallContext, &T, Ident) -> Ret: FieldGetFallback + 'static,
+    {
+        self.inner.field_get_fallback = Rc::new(func);
+    }
+
+    pub fn register_field_get_set_fallback<Ret: 'static, SetRet: 'static>(
+        &mut self,
+        getter: fn(CallContext, &T, Ident) -> Ret,
+        setter: fn(CallContext, &mut T, Ident, ValueRef) -> SetRet,
+    ) where
+        fn(CallContext, &T, Ident) -> Ret: FieldGetFallback + 'static,
+        fn(CallContext, &mut T, Ident, ValueRef) -> SetRet: FieldSetFallback + 'static,
+    {
+        self.inner.field_get_fallback = Rc::new(getter);
+        self.inner.field_set_fallback = Rc::new(setter);
     }
 
     pub fn register_index_get<IndexType: Value + 'static, Ret>(

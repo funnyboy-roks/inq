@@ -1,16 +1,10 @@
 use std::{fmt::Display, io::Write, time::Duration};
 
-use base64::Engine;
 use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
 
-use crate::{
-    config::PopulatedBody,
-    script::{ContentType, ScriptResponse},
-    state::PersistedVariable,
-    util::DATETIME_FORMAT,
-};
+use crate::script::{request::RequestBody, response::ResponseValue};
 
 #[macro_export]
 macro_rules! warn {
@@ -66,7 +60,7 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
     }
 }
 
-pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::Result<()> {
+pub fn print_request(req: &Request, body: &RequestBody) -> miette::Result<()> {
     use owo_colors::OwoColorize as _;
 
     eprintln!("{}:", "Request Details".cyan());
@@ -90,34 +84,34 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
         }
     }
 
-    if let Some(req_body) = body {
-        match req_body {
-            PopulatedBody::Json(value) => {
-                eprintln!("{}:", "Request Body (JSON)".cyan());
-                pretty_print_json(&mut anstream::stderr().lock(), value, 0).into_diagnostic()?;
-                eprintln!();
-            }
-            PopulatedBody::Text(text) => {
-                eprintln!("{}:", "Request Body (Text)".cyan());
-
-                eprintln!("{}", text);
-            }
-            PopulatedBody::File(path) => {
-                eprintln!(
-                    "{}: {}",
-                    "Request Body (File)".cyan(),
-                    path.display().yellow()
-                );
-            }
-            PopulatedBody::Raw(raw) => {
-                eprintln!("{}:", "Request Body (Raw)".cyan());
-                if let Ok(s) = str::from_utf8(raw) {
-                    eprintln!("{}", s);
-                } else {
-                    eprintln!("{}", base64::engine::general_purpose::STANDARD.encode(raw));
-                }
-            }
+    match body {
+        RequestBody::None => {}
+        RequestBody::Json(value) => {
+            eprintln!("{}:", "Request Body (JSON)".cyan());
+            pretty_print_json(&mut anstream::stderr().lock(), value.0.clone(), 0)
+                .into_diagnostic()?;
+            eprintln!();
         }
+
+        RequestBody::Text(text) => {
+            eprintln!("{}:", "Request Body (Text)".cyan());
+
+            eprintln!("{}", text);
+        } // RequestBody::File(path) => {
+          //     eprintln!(
+          //         "{}: {}",
+          //         "Request Body (File)".cyan(),
+          //         path.display().yellow()
+          //     );
+          // }
+          // RequestBody::Raw(raw) => {
+          //     eprintln!("{}:", "Request Body (Raw)".cyan());
+          //     if let Ok(s) = str::from_utf8(raw) {
+          //         eprintln!("{}", s);
+          //     } else {
+          //         eprintln!("{}", base64::engine::general_purpose::STANDARD.encode(raw));
+          //     }
+          // }
     }
 
     eprintln!("{}", "Sending Request...".purple());
@@ -125,7 +119,7 @@ pub fn print_request(req: &Request, body: Option<PopulatedBody<'_>>) -> miette::
     Ok(())
 }
 
-pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> miette::Result<()> {
+pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miette::Result<()> {
     use owo_colors::OwoColorize as _;
 
     eprintln!("{}:", "Response Details".cyan());
@@ -144,7 +138,7 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
         &status
     };
     eprintln!("  {}:   {:?}", "HTTP Version".blue(), res.version.yellow());
-    eprintln!("  {}:            {}", "URL".blue(), res.url.yellow());
+    eprintln!("  {}:            {}", "URL".blue(), res.url.0.yellow());
     eprintln!("  {}:       {:?}", "Duration".blue(), elapsed.yellow());
     eprintln!("  {}:    {}", "Status Code".blue(), status);
     if let Some(remote_addr) = res.remote_addr {
@@ -152,7 +146,7 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
     }
 
     eprintln!("  {}:", "Headers".blue());
-    for (name, value) in &*res.headers {
+    for (name, value) in &res.headers.0 {
         match value.to_str() {
             Ok(s) => eprintln!("    {}: {}", name.yellow(), s),
             Err(_) => eprintln!("    {}: {:?}", name.yellow(), value),
@@ -166,15 +160,15 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
         };
         let encoding = encoding.cyan();
 
-        match res.body.content_type() {
-            Some(ContentType::Json) if !raw => {
+        match res.body.content_type.as_deref() {
+            Some("application/json") if !raw => {
                 eprintln!("{}{}:", "Response Body (JSON)".cyan(), encoding);
                 let json = res.body.json().context("Parsing response body as json")?;
-                pretty_print_json(&mut anstream::stdout().lock(), json.clone(), 0)
+                pretty_print_json(&mut anstream::stdout().lock(), json.0.clone(), 0)
                     .into_diagnostic()?;
                 println!();
             }
-            Some(ContentType::Text) if !raw => {
+            Some("text/plain") if !raw => {
                 eprintln!("{}{}:", "Response Body (Plaintext)".cyan(), encoding);
                 let text = res
                     .body
@@ -200,31 +194,4 @@ pub fn print_response(res: &ScriptResponse, elapsed: Duration, raw: bool) -> mie
     }
 
     Ok(())
-}
-
-pub fn print_variable(v: &PersistedVariable, indent: bool) {
-    use owo_colors::OwoColorize as _;
-    if indent {
-        eprint!("  ");
-    }
-    eprint!("{}   ", "Value:".blue());
-    let _ = std::io::stderr().flush(); // ensure the Value: is printed
-
-    println!("{}", v.value); // print to stdout so it can be piped
-
-    if indent {
-        eprint!("  ");
-    }
-    if let Some(expires_at) = v.expires_at {
-        eprintln!(
-            "{} {} {}",
-            "Expires:".blue(),
-            expires_at
-                .with_timezone(&chrono::Local)
-                .format(DATETIME_FORMAT),
-            format!("({})", chrono_humanize::HumanTime::from(expires_at)).yellow(),
-        );
-    } else {
-        eprintln!("{} Never", "Expires:".blue());
-    }
 }
