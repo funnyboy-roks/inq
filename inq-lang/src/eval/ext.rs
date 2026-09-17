@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use crate::{
     IStr, Route,
-    eval::{Engine, EvalResult, Scope},
+    eval::{EvalResult, Scope},
 };
 
 impl Route {

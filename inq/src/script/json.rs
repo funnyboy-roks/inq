@@ -43,7 +43,7 @@ impl Value for Json {
         true
     }
 
-    fn register(registry: &mut Registry<Self>)
+    fn register(_registry: &mut Registry<Self>)
     where
         Self: Sized,
     {
@@ -77,10 +77,10 @@ impl Json {
                 })
                 .collect()
         } else {
-            return Err(EvalError::Custom {
+            Err(EvalError::Custom {
                 message: format!("Invalid type for JSON: {}", arg.type_name_of()),
                 span: ctx.span(),
-            });
+            })
         }
     }
 }

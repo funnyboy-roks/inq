@@ -1,5 +1,3 @@
-use std::{cell::RefCell, rc::Rc};
-
 use crate::{
     cli::{Cli, VariableCommand},
     config::Config,
@@ -8,9 +6,9 @@ use crate::{
 
 pub(crate) fn run(
     _cli: &Cli,
-    var_cmd: &VariableCommand,
+    _var_cmd: &VariableCommand,
     _config: Config,
-    state: &mut State,
+    _state: &mut State,
 ) -> miette::Result<()> {
     // TODO(refactor)
     todo!();
@@ -60,6 +58,4 @@ pub(crate) fn run(
     //         }
     //     }
     // }
-
-    Ok(())
 }

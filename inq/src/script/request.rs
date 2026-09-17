@@ -11,7 +11,7 @@ use inq_lang::{
 use reqwest::{
     Method, Url,
     blocking::{Body, Request},
-    header::{self, HeaderMap, HeaderValue},
+    header::{self, HeaderMap, HeaderName, HeaderValue},
 };
 
 use crate::script::{header::HeaderMapValue, json::Json, url::UrlValue};
@@ -35,7 +35,10 @@ impl RequestValue {
         Self {
             method,
             url: Rc::new(RefCell::new(UrlValue(url))),
-            headers: Rc::new(RefCell::new(HeaderMapValue(HeaderMap::new()))),
+            headers: Rc::new(RefCell::new(HeaderMapValue(HeaderMap::from_iter([(
+                HeaderName::from_static("user-agent"),
+                HeaderValue::from_static(concat!("inq/", env!("CARGO_PKG_VERSION"))),
+            )])))),
             body: RequestBody::None,
         }
     }

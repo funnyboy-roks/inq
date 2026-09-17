@@ -125,7 +125,7 @@ impl Value for ResponseValue {
         });
         registry.register_method::<fn(CallContext, &mut _) -> _>("json", |ctx, this| {
             this.body.json().map_err(|e| EvalError::Custom {
-                message: format!("Unable to parse response body as json: {}", e).into(),
+                message: format!("Unable to parse response body as json: {}", e),
                 span: ctx.span(),
             })
         });

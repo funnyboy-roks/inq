@@ -1,7 +1,7 @@
 use std::{fmt::Display, rc::Rc};
 
 use bytes::Bytes;
-use cookie::Cookie;
+// TODO: use cookie::Cookie;
 use inq_lang::{
     IStr,
     eval::{Engine, EvalResult, registry::FunctionValue, value::ValueRef},

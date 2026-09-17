@@ -6,28 +6,6 @@ use humantime::Duration;
 pub(crate) mod route;
 pub(crate) mod variable;
 
-#[derive(Debug, Clone)]
-pub struct Variable {
-    pub name: String,
-    pub value: String,
-}
-
-impl Variable {
-    pub fn parse(s: &str) -> Result<Self, clap::error::Error> {
-        if let Some((name, value)) = s.split_once('=') {
-            Ok(Self {
-                name: name.into(),
-                value: value.into(),
-            })
-        } else {
-            Err(clap::error::Error::raw(
-                clap::error::ErrorKind::InvalidValue,
-                "Expected KEY=VALUE",
-            ))
-        }
-    }
-}
-
 #[derive(Debug, Parser)]
 pub struct RouteCommand {
     /// Print the raw body of the response

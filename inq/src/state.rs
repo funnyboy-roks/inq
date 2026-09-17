@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     io::BufWriter,
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
 use chrono::{DateTime, Utc};

@@ -4,7 +4,7 @@ use std::fmt::{Debug, Display};
 pub(crate) struct DisplayList<'a, D: Display>(pub(crate) &'a [D]);
 impl<D: Display> Display for DisplayList<'_, D> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match &*self.0 {
+        match self.0 {
             [] => write!(f, "token"),
             [a] => write!(f, "{a}"),
             [a, b] => write!(f, "one of {a} or {b}"),
@@ -41,6 +41,7 @@ impl<T: Display> Display for DisplayVec<'_, T> {
 }
 
 #[derive(Clone, Debug)]
+#[allow(unused, reason = "This is used")]
 pub(crate) struct OptionDisplay<'a, T>(pub &'a Option<T>);
 impl<T: Display> Display for OptionDisplay<'_, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

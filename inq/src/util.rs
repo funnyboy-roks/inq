@@ -1,15 +1,3 @@
-use std::borrow::Cow;
-
-pub const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
-
-pub fn to_lowercase(s: &str) -> Cow<'_, str> {
-    if s.chars().all(char::is_lowercase) {
-        Cow::Borrowed(s)
-    } else {
-        Cow::Owned(s.to_lowercase())
-    }
-}
-
 pub(crate) trait ToReqwest {
     type Target;
 
