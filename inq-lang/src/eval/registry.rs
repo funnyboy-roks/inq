@@ -496,7 +496,7 @@ impl<T: Value> Registry<T> {
 
     /// Get a reference to the engine.  This can be used to recursively register types:
     ///
-    /// ```no_run
+    /// ```ignore
     /// fn register(registry: &mut Registry<MyType>) {
     ///     registry.engine().register_type::<MyOtherType>();
     ///     // ...

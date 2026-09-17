@@ -1,18 +1,11 @@
-use std::rc::Rc;
-
 use miette::NamedSource;
 
-use crate::{
-    eval::{Engine, Scope, value::ValueRef},
-    lex::Lexer,
-    parse::Parser,
-};
+use crate::{eval::Engine, parse::Parser};
 
 macro_rules! eval {
     ($engine: expr, $($tt: tt)*) => {{
         let content = stringify!($($tt)*);
-        let lex = Lexer::new(&content);
-        let mut parser = Parser::new(lex)
+        let mut parser = Parser::new(&content)
             .map_err(|e| {
                 miette::Report::from(e)
                     .with_source_code(NamedSource::new("literal", content.to_string()))
