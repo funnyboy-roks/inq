@@ -1,7 +1,7 @@
 use std::{cell::RefCell, net::SocketAddr, rc::Rc};
 
 use inq_lang::{
-    StringExt,
+    IStr, StringExt,
     eval::{
         EvalError,
         registry::Registry,
@@ -11,7 +11,9 @@ use inq_lang::{
 use miette::{Context, IntoDiagnostic};
 use reqwest::{StatusCode, Version, blocking::Response, header};
 
-use crate::script::{Encoding, ScriptBody, header::HeaderMapValue, url::UrlValue};
+use crate::script::{
+    Encoding, ScriptBody, bytes_value::BytesValue, header::HeaderMapValue, url::UrlValue,
+};
 
 #[derive(Debug, Clone)]
 pub struct ResponseValue {
@@ -129,30 +131,23 @@ impl Value for ResponseValue {
                 span: ctx.span(),
             })
         });
+        registry.register_method::<fn(CallContext, &mut _) -> _>("text", |ctx, this| {
+            this.body
+                .text()
+                .map_err(|e| EvalError::Custom {
+                    message: format!("Unable to parse response body as text: {}", e),
+                    span: ctx.span(),
+                })
+                .map(IStr::from)
+        });
+        registry.register_method::<fn(CallContext, &mut _) -> _>("bytes", |ctx, this| {
+            this.body
+                .bytes()
+                .map_err(|e| EvalError::Custom {
+                    message: format!("{}", e),
+                    span: ctx.span(),
+                })
+                .map(BytesValue::from)
+        });
     }
 }
-// fn re(mut builder: Registry<Self>) {
-//     builder
-//         .on_debug(|x| format!("{:#?}", x))
-//         .with_get("version", |r: &mut Self| r.version)
-//         .with_get("url", |r: &mut Self| r.url.clone())
-//         .with_get("remote_addr", |r: &mut Self| r.remote_addr)
-//         .with_get("headers", |r: &mut Self| r.headers.clone())
-//         .with_get("content_length", |r: &mut Self| r.content_length)
-//         .with_fn("json", |r: &mut Self| {
-//             r.body.json().map_err(|e| {
-//                 Box::new(EvalAltResult::ErrorRuntime(
-//                     format!("Unable to parse response body as json: {}", e).into(),
-//                     Position::NONE,
-//                 ))
-//             })
-//         })
-//         .with_fn("text", |r: &mut Self| {
-//             r.body.text().map_err(|e| {
-//                 Box::new(EvalAltResult::ErrorRuntime(
-//                     format!("Unable to parse response body as text: {}", e).into(),
-//                     Position::NONE,
-//                 ))
-//             })
-//         });
-// }

@@ -2,7 +2,11 @@ use std::{cell::RefCell, rc::Rc, str::FromStr};
 
 use inq_lang::{
     IStr,
-    eval::{EvalError, registry::Registry, value::Value},
+    eval::{
+        EvalError,
+        registry::Registry,
+        value::{Value, native::Int},
+    },
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
@@ -40,6 +44,7 @@ impl Value for HeaderMapValue {
     where
         Self: Sized,
     {
+        registry.register_method::<fn(&mut _) -> _>("len", |this| this.0.len() as Int);
         registry.register_index_get_set(
             |ctx, this, s: &IStr| {
                 let name = HeaderName::from_str(s.as_str()).map_err(|_| EvalError::Custom {

@@ -14,7 +14,7 @@ use crate::{
 
 use super::{Value, ValueRef};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Null;
 impl From<()> for Null {
     fn from((): ()) -> Self {
@@ -505,7 +505,7 @@ impl Value for fn(&IStr) -> ValueRef {
     }
 }
 
-fn normalise_index(i: i64, len: usize, span: Span) -> EvalResult<usize> {
+pub fn normalise_index(i: i64, len: usize, span: Span) -> EvalResult<usize> {
     let ni = if i < 0 { len as i64 + i } else { i };
 
     if ni < 0 || ni >= len as i64 {

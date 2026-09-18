@@ -10,6 +10,9 @@ license = "Apache-2.0"
 edition = "2024"
 rust-version = "1.95"
 
+[features]
+testing = []
+
 [dependencies]
 clap = { version = "4.6.1", features = ["derive"] }
 reqwest = { version = "0.13.2", features = ["blocking", "json"] }
@@ -31,3 +34,8 @@ mime_guess = "2.0.5"
 base64 = "0.22.1"
 hex = "0.4.3"
 inq-lang = { path = "../inq-lang/" }
+
+[dev-dependencies]
+inq = { path = ".", features = ["testing"] }
+tempfile = "3.27.0"
+mockito = "1.7.2"

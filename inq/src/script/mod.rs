@@ -4,18 +4,19 @@ use bytes::Bytes;
 // TODO: use cookie::Cookie;
 use inq_lang::{
     IStr,
-    eval::{Engine, EvalResult, registry::FunctionValue, value::ValueRef},
+    eval::{Engine, EvalError, EvalResult, registry::FunctionValue, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 
 use crate::{
     decode::{decode_brotli, decode_deflate, decode_gzip, decode_zstd},
     script::{
-        header::HeaderMapValue, json::Json, request::RequestValue, response::ResponseValue,
-        url::UrlValue,
+        bytes_value::BytesValue, header::HeaderMapValue, json::Json, request::RequestValue,
+        response::ResponseValue, url::UrlValue,
     },
 };
 
+pub(crate) mod bytes_value;
 pub(crate) mod header;
 pub(crate) mod json;
 pub(crate) mod request;
@@ -111,6 +112,7 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<UrlValue>();
     engine.register_type::<Json>();
     engine.register_type::<HeaderMapValue>();
+    engine.register_type::<BytesValue>();
 
     // plugins
     // RandomPackage::new().register_into_engine(&mut engine);
@@ -145,6 +147,20 @@ pub fn base_engine() -> Rc<Engine> {
     );
 
     global.set_variable("json", FunctionValue::new(Json::from_value), true);
+    global.set_variable(
+        "assert",
+        FunctionValue::new(|ctx, b: bool| {
+            if b {
+                Ok(ValueRef::null())
+            } else {
+                Err(EvalError::Custom {
+                    message: "Assertion failed".into(),
+                    span: ctx.span(),
+                })
+            }
+        }),
+        true,
+    );
 
     // cookie type
     // engine
