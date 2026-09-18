@@ -2,10 +2,14 @@ use std::{
     collections::HashMap,
     io::BufWriter,
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use chrono::{DateTime, Utc};
-use inq_lang::IStr;
+use inq_lang::{
+    IStr,
+    eval::{EvalError, EvalResult},
+};
 use miette::Context;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -19,6 +23,7 @@ struct PersistedVariable {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct State {
+    data_dir: PathBuf,
     variables: HashMap<IStr, PersistedVariable>,
 }
 
@@ -48,12 +53,33 @@ impl State {
         }
     }
 
+    fn cleanup_vars(&mut self) {
+        self.variables
+            .retain(|_, v| v.expires_at.is_none_or(|e| e > Utc::now()));
+    }
+
     pub fn load(config_path: impl AsRef<Path>) -> miette::Result<Self> {
         let data_dir = Self::data_dir(config_path.as_ref())?;
 
-        Ok(Self {
+        let mut this = Self {
             variables: Self::load_data_file_or(&data_dir, "variables.json", Default::default)?,
-        })
+            data_dir,
+        };
+        this.cleanup_vars();
+        Ok(this)
+    }
+
+    pub fn apply_variables(&self, config: Rc<Config>) -> miette::Result<()> {
+        for v in &config.persisted_vars {
+            if let Some(var) = self.variables.get(&v.as_istr()) {
+                assert!(var.expires_at.is_none_or(|e| e > Utc::now()));
+                config
+                    .engine
+                    .global()
+                    .set_variable(v.as_istr(), var.value.clone(), false);
+            }
+        }
+        Ok(())
     }
 
     pub fn update_variables(&mut self, config: &Config) -> miette::Result<()> {
@@ -71,25 +97,33 @@ impl State {
                         expires_at: None,
                     },
                 );
+            } else {
+                return Err(
+                    EvalError::custom(var.span, "Persisted variables must be strings").into(),
+                );
             }
         }
         Ok(())
     }
 
-    pub fn save(&self, config_path: impl AsRef<Path>) -> miette::Result<()> {
-        let data_dir = Self::data_dir(config_path.as_ref())?;
+    fn make_data_dir(&self) -> miette::Result<()> {
+        let dir_existed = self.data_dir.exists();
 
-        let dir_existed = data_dir.exists();
-
-        std::fs::create_dir_all(&data_dir)
-            .map_err(|e| miette::miette!("Error creating {:?}: {}", data_dir, e))?;
+        std::fs::create_dir_all(&self.data_dir)
+            .map_err(|e| miette::miette!("Error creating {:?}: {}", self.data_dir, e))?;
 
         if !dir_existed {
-            std::fs::write(data_dir.join(".gitignore"), "*\n")
+            std::fs::write(self.data_dir.join(".gitignore"), "*\n")
                 .map_err(|e| miette::miette!("Error writing .inq/.gitignore: {}", e))?;
         }
 
-        let variables = data_dir.join("variables.json");
+        Ok(())
+    }
+
+    pub fn save(&self) -> miette::Result<()> {
+        self.make_data_dir()?;
+
+        let variables = self.data_dir.join("variables.json");
         let variables = std::fs::File::create(variables)
             .map_err(|e| miette::miette!("Error creating .inq/variables.json: {}", e))?;
         let variables = BufWriter::new(variables);

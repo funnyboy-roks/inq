@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 
-pub(crate) mod route;
-pub(crate) mod variable;
+pub mod route;
+pub mod variable;
 
 #[derive(Debug, Parser)]
 pub struct RouteCommand {

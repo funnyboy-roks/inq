@@ -8,7 +8,7 @@ use miette::{IntoDiagnostic, bail};
 use reqwest::{Url, blocking::Request};
 
 use crate::{
-    cli::{Cli, RouteCommand},
+    cli::RouteCommand,
     config::Config,
     print::{print_request, print_response},
     script::{request::RequestValue, response::ResponseValue},
@@ -80,12 +80,7 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
     Ok(url)
 }
 
-pub(crate) fn run(
-    _: &Cli,
-    route_cmd: &RouteCommand,
-    config: Config,
-    state: &mut State,
-) -> miette::Result<()> {
+pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette::Result<()> {
     let Some(route) = &route_cmd.route else {
         return list_routes(config);
     };

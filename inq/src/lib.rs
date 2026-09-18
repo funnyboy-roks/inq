@@ -18,12 +18,12 @@ pub fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let config = Config::load(config_str)?;
     let mut state = State::load(&cli.config)?;
 
-    match &cli.subcmd {
-        SubCmd::Route(s) => cli::route::run(&cli, s, config, &mut state)?,
-        SubCmd::Variable(s) => cli::variable::run(&cli, s, config, &mut state)?,
+    match cli.subcmd {
+        SubCmd::Route(cmd) => cli::route::run(cmd, config, &mut state)?,
+        SubCmd::Variable(cmd) => cli::variable::run(cmd, config, &mut state)?,
     };
 
-    state.save(&cli.config)?;
+    state.save()?;
 
     Ok(())
 }

@@ -183,6 +183,15 @@ impl From<miette::Report> for EvalError {
     }
 }
 
+impl EvalError {
+    pub fn custom(span: impl Into<Span>, message: impl Into<String>) -> Self {
+        Self::Custom {
+            message: message.into(),
+            span: span.into(),
+        }
+    }
+}
+
 pub type EvalResult<T> = Result<T, EvalError>;
 
 #[derive(Default, Debug)]

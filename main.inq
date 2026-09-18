@@ -2,7 +2,7 @@ let port = 3000;
 let BASE_URL = "http://localhost:$port";
 
 #[persist]
-let cookie = ""; // persistence time set in post-script
+let cookie = "";
 #[persist]
 let user = "john";
 #[persist]

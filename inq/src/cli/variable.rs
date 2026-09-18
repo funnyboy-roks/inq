@@ -1,15 +1,6 @@
-use crate::{
-    cli::{Cli, VariableCommand},
-    config::Config,
-    state::State,
-};
+use crate::{cli::VariableCommand, config::Config, state::State};
 
-pub(crate) fn run(
-    _cli: &Cli,
-    _var_cmd: &VariableCommand,
-    _config: Config,
-    _state: &mut State,
-) -> miette::Result<()> {
+pub fn run(_var_cmd: VariableCommand, _config: Config, _state: &mut State) -> miette::Result<()> {
     // TODO(refactor)
     todo!();
     // match &var_cmd.command {
