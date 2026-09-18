@@ -6,10 +6,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use inq_lang::{
-    IStr,
-    eval::{EvalError, EvalResult},
-};
+use inq_lang::{IStr, eval::EvalError};
 use miette::Context;
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
