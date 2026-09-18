@@ -3,7 +3,6 @@ use std::{cell::RefCell, rc::Rc};
 use inq_lang::{
     IStr,
     eval::{
-        EvalError,
         registry::Registry,
         value::{Value, ValueRef, native::Null},
     },

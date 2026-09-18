@@ -3,7 +3,6 @@ use std::{cell::RefCell, net::SocketAddr, rc::Rc};
 use inq_lang::{
     IStr, StringExt,
     eval::{
-        EvalError,
         registry::Registry,
         value::{CallContext, Value, native::Int},
     },

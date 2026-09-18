@@ -4,7 +4,7 @@ use bytes::Bytes;
 // TODO: use cookie::Cookie;
 use inq_lang::{
     IStr,
-    eval::{Engine, EvalError, EvalResult, registry::FunctionValue, value::ValueRef},
+    eval::{Engine, EvalResult, registry::FunctionValue, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 
