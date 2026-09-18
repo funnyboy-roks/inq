@@ -95,15 +95,10 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
             .map(Some)
             .chain(std::iter::repeat(None)),
     ) {
-        let value = if let Some(value) = value {
-            value.clone()
+        let value: ValueRef = if let Some(value) = value {
+            IStr::from(value.clone()).into()
         } else if let Some(ref default_value) = arg.default_value {
-            let span = default_value.span;
-            scope
-                .eval(default_value.clone())?
-                .expect_downcast::<IStr>(span)?
-                .as_str()
-                .into()
+            scope.eval(default_value.clone())?
         } else {
             return Err(EvalError::Custom {
                 message: format!("Argument `{}` is required", arg.name),
@@ -111,8 +106,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
             }
             .into());
         };
-
-        scope.set_variable(arg.name.as_ref(), IStr::from(value), true);
+        scope.set_variable_ref(arg.name.as_ref(), value, true);
     }
 
     let url = parse_url(&config, route, &scope)?;

@@ -81,11 +81,13 @@ impl State {
 
     pub fn update_variables(&mut self, config: &Config) -> miette::Result<()> {
         for var in &config.persisted_vars {
-            let v = config
+            let Some(v) = config
                 .engine
                 .global()
-                .get_variable(&var.as_istr())?
-                .expect("Only added if declared");
+                .get_evaluated_variable(&var.as_istr())?
+            else {
+                continue;
+            };
             if let Some(s) = v.downcast::<IStr>() {
                 self.variables.insert(
                     var.as_istr(),

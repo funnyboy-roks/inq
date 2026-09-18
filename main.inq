@@ -8,6 +8,8 @@ let user = "john";
 #[persist]
 let password = read_text_file("./password");
 
+route foo(arg = null) => GET "/echo?foo=$arg";
+
 route login() => POST "/login"
     before {
         request.body = json({

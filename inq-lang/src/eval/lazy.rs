@@ -48,6 +48,14 @@ impl LazyValueRef {
         }
     }
 
+    /// Get value of variable, if resolved
+    pub(crate) fn resolved(&self) -> Option<ValueRef> {
+        match &*self.inner.borrow() {
+            LazyValueRefInner::Resolved(value_ref) => Some(value_ref.clone()),
+            LazyValueRefInner::Pending { .. } => None,
+        }
+    }
+
     pub(crate) fn lazy(scope: &Scope, expr: Expr) -> Self {
         Self {
             inner: Rc::new(RefCell::new(LazyValueRefInner::Pending {

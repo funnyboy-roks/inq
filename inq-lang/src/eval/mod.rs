@@ -371,6 +371,18 @@ impl Scope {
         }
     }
 
+    /// Get a variable _only_ if it has been evaluated already
+    pub fn get_evaluated_variable(&self, name: &str) -> EvalResult<Option<ValueRef>> {
+        let vars = self.variables.borrow();
+        if let Some(var) = vars.get(name) {
+            Ok(var.resolved())
+        } else if let Some(parent) = &self.parent {
+            parent.get_evaluated_variable(name)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn expect_variable(&self, ident: &Ident) -> EvalResult<ValueRef> {
         self.get_variable(ident.as_ref())?
             .ok_or(EvalError::UndefinedVariable {
@@ -384,7 +396,15 @@ impl Scope {
         V: Value,
     {
         self.engine.register_type::<V>();
-        self.set_variable_by_ref(name, ValueRef::new(value), declare)
+        self.set_variable_ref(name, value, declare)
+    }
+
+    /// Returns true if the variable already existed in the current scope
+    pub fn set_variable_ref<V>(&self, name: impl Into<IStr>, value: V, declare: bool) -> bool
+    where
+        V: Into<ValueRef>,
+    {
+        self.set_variable_by_ref(name, value.into(), declare)
     }
 
     pub fn add_variable(&self, var: Variable) {
