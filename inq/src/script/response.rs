@@ -126,27 +126,20 @@ impl Value for ResponseValue {
             this.content_length.map(|n| n as Int).unwrap_or_default()
         });
         registry.register_method::<fn(CallContext, &mut _) -> _>("json", |ctx, this| {
-            this.body.json().map_err(|e| EvalError::Custom {
-                message: format!("Unable to parse response body as json: {}", e),
-                span: ctx.span(),
-            })
+            this.body
+                .json()
+                .map_err(|e| ctx.error(format!("Unable to parse response body as json: {}", e)))
         });
         registry.register_method::<fn(CallContext, &mut _) -> _>("text", |ctx, this| {
             this.body
                 .text()
-                .map_err(|e| EvalError::Custom {
-                    message: format!("Unable to parse response body as text: {}", e),
-                    span: ctx.span(),
-                })
+                .map_err(|e| ctx.error(format!("Unable to parse response body as text: {}", e)))
                 .map(IStr::from)
         });
         registry.register_method::<fn(CallContext, &mut _) -> _>("bytes", |ctx, this| {
             this.body
                 .bytes()
-                .map_err(|e| EvalError::Custom {
-                    message: format!("{}", e),
-                    span: ctx.span(),
-                })
+                .map_err(|e| ctx.error(format!("{}", e)))
                 .map(BytesValue::from)
         });
     }

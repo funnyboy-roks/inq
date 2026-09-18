@@ -1,6 +1,7 @@
 use clap::Parser;
 
 use inq::{cli::Cli, run};
+use miette::NamedSource;
 
 fn main() -> miette::Result<()> {
     let cli = Cli::parse();
@@ -11,5 +12,11 @@ fn main() -> miette::Result<()> {
             std::process::exit(1);
         }
     };
-    run(cli, &config_str).map_err(|m| m.with_source_code(config_str))
+    let name = cli
+        .config
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    run(cli, &config_str).map_err(|m| m.with_source_code(NamedSource::new(name, config_str)))
 }

@@ -21,6 +21,7 @@ pub fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     match cli.subcmd {
         SubCmd::Route(cmd) => cli::route::run(cmd, config, &mut state)?,
         SubCmd::Variable(cmd) => cli::variable::run(cmd, config, &mut state)?,
+        SubCmd::Eval(cmd) => cli::eval::run(cmd, config, &mut state)?,
     };
 
     state.save()?;

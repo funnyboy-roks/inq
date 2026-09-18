@@ -1,4 +1,4 @@
-use std::{borrow::Cow, cell::RefCell, cmp::Ordering, fmt::Debug, rc::Rc};
+use std::{borrow::Cow, cell::RefCell, cmp::Ordering, fmt::Debug, rc::Rc, str::FromStr};
 
 use indexmap::IndexMap;
 
@@ -7,6 +7,7 @@ use crate::{
     eval::{
         EvalError, EvalResult,
         registry::{BinOp, PrefixOp, Registry, UnaryOp, VarArgs},
+        value::CallContext,
     },
     parse::Ident,
     string::IStr,
@@ -108,14 +109,14 @@ impl Value for Int {
             |ctx, &mut this, radix: Option<i64>| {
                 let radix = radix.unwrap_or(10.into());
                 if !(2..=36).contains(&radix) {
-                    return Err(EvalError::Custom {
-                        message: format!("radix must be in range [2, 36], got {}", radix),
-                        span: ctx.span,
-                    });
+                    return Err(ctx.error(format!("radix must be in range [2, 36], got {}", radix)));
                 }
                 Ok(to_string_radix(this, radix))
             },
         );
+        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+            Int::from_str(&s).map_err(|e| ctx.error(format!("Cannot parse {:?} as Int: {}", s, e)))
+        });
 
         registry.register_method::<fn(&mut _) -> _>("to_float", |&mut this| this as Float);
     }
@@ -175,6 +176,11 @@ impl Value for Float {
             };
         }
         proxy!(floor ceil round trunc fract sqrt exp exp2 ln log2 log10 cbrt sin cos);
+
+        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+            Self::from_str(&s)
+                .map_err(|e| ctx.error(format!("Cannot parse {:?} as Float: {}", s, e)))
+        });
     }
 }
 
@@ -286,16 +292,18 @@ impl Value for IStr {
                 };
 
                 if nstart < 0 || nstart > this.len() as i64 {
-                    return Err(EvalError::Custom {
-                        message: format!("Start {} out of bounds for length {}", start, this.len()),
-                        span: ctx.span,
-                    });
+                    return Err(ctx.error(format!(
+                        "Start {} out of bounds for length {}",
+                        start,
+                        this.len()
+                    )));
                 }
                 if nend < 0 || nend > this.len() as i64 {
-                    return Err(EvalError::Custom {
-                        message: format!("End {} out of bounds for length {}", end, this.len()),
-                        span: ctx.span,
-                    });
+                    return Err(ctx.error(format!(
+                        "End {} out of bounds for length {}",
+                        end,
+                        this.len()
+                    )));
                 }
 
                 Ok(IStr::from(&this[start as usize..end as usize]))

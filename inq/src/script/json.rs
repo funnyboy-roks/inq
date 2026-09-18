@@ -78,10 +78,7 @@ impl Json {
                 })
                 .collect()
         } else {
-            Err(EvalError::Custom {
-                message: format!("Invalid type for JSON: {}", arg.type_name_of()),
-                span: ctx.span(),
-            })
+            Err(ctx.error(format!("Invalid type for JSON: {}", arg.type_name_of())))
         }
     }
 

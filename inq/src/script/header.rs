@@ -47,10 +47,8 @@ impl Value for HeaderMapValue {
         registry.register_method::<fn(&mut _) -> _>("len", |this| this.0.len() as Int);
         registry.register_index_get_set(
             |ctx, this, s: &IStr| {
-                let name = HeaderName::from_str(s.as_str()).map_err(|_| EvalError::Custom {
-                    message: "Invalid header name".into(),
-                    span: ctx.index_span,
-                })?;
+                let name = HeaderName::from_str(s.as_str())
+                    .map_err(|_| EvalError::custom(ctx.index_span, "Invalid header name"))?;
                 Ok(this
                     .0
                     .get(name)
@@ -61,14 +59,10 @@ impl Value for HeaderMapValue {
             },
             |ctx, this, s: &IStr, v| {
                 let val = v.expect_downcast::<IStr>(ctx.rhs_span)?;
-                let name = HeaderName::from_str(s.as_str()).map_err(|_| EvalError::Custom {
-                    message: "Invalid header name".into(),
-                    span: ctx.index_span,
-                })?;
-                let value = HeaderValue::from_str(&val).map_err(|_| EvalError::Custom {
-                    message: "Invalid header value".into(),
-                    span: ctx.rhs_span,
-                })?;
+                let name = HeaderName::from_str(s.as_str())
+                    .map_err(|_| EvalError::custom(ctx.index_span, "Invalid header name"))?;
+                let value = HeaderValue::from_str(&val)
+                    .map_err(|_| EvalError::custom(ctx.rhs_span, "Invalid header value"))?;
                 this.0.insert(name, value);
                 Ok(())
             },

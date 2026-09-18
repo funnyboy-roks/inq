@@ -153,10 +153,7 @@ pub fn base_engine() -> Rc<Engine> {
             if b {
                 Ok(ValueRef::null())
             } else {
-                Err(EvalError::Custom {
-                    message: "Assertion failed".into(),
-                    span: ctx.span(),
-                })
+                Err(ctx.error("Assertion failed"))
             }
         }),
         true,

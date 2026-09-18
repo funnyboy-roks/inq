@@ -78,10 +78,10 @@ impl Value for BytesValue {
                 let idx = normalise_index(idx, this.inner.len(), ctx.index_span)?;
                 let n = value.expect_downcast::<Int>(ctx.rhs_span)?;
                 if !(0..=255).contains(&n) {
-                    return Err(EvalError::Custom {
-                        message: "Byte value must be in range [0, 255]".into(),
-                        span: ctx.rhs_span,
-                    });
+                    return Err(EvalError::custom(
+                        ctx.rhs_span,
+                        "Byte value must be in range [0, 255]",
+                    ));
                 }
                 this.inner[idx] = n as _;
                 Ok(())

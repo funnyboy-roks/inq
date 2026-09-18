@@ -4,6 +4,7 @@ use std::{
 };
 
 use crate::{
+    IStr,
     eval::{
         Engine, EvalError, EvalResult,
         value::{CallContext, Value, ValueRef},
@@ -417,6 +418,13 @@ impl Debug for Indexer {
     }
 }
 
+fn unknown_method(ctx: CallContext, method: Ident, _: VarArgs) -> EvalResult<ValueRef> {
+    Err(EvalError::UnknownMethod {
+        ty: ctx.self_ref.type_name_of().into(),
+        method,
+    })
+}
+
 pub struct Registry<T> {
     inner: AnyRegistry,
     _p: PhantomData<T>,
@@ -424,10 +432,16 @@ pub struct Registry<T> {
 
 #[derive(derive_more::Debug)]
 pub(crate) struct AnyRegistry {
+    pub(crate) name: IStr,
+    pub(crate) type_id: TypeId,
     #[debug("..")]
     engine: Rc<Engine>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     methods: HashMap<&'static str, Rc<dyn DynMethod>>,
+    method_fallback: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+    #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
+    static_methods: HashMap<&'static str, Rc<dyn Function>>,
+    static_method_fallback: fn(CallContext, Ident, VarArgs) -> Result<ValueRef, EvalError>,
     fields: HashMap<&'static str, Field>,
     #[debug("{}", if call.is_some() { "Some(..)" } else { "None" })]
     pub(crate) field_get_fallback: Rc<dyn FieldGetFallback>,
@@ -447,8 +461,34 @@ pub(crate) struct AnyRegistry {
 }
 
 impl AnyRegistry {
-    pub(crate) fn get_method(&self, inner: &'_ str) -> Option<Rc<dyn DynMethod>> {
-        self.methods.get(inner).cloned()
+    pub(crate) fn for_same_type(&self, other: &AnyRegistry) -> bool {
+        self.type_id == other.type_id
+    }
+
+    pub(crate) fn call_method(
+        &self,
+        ctx: CallContext,
+        method: Ident,
+        args: VarArgs,
+    ) -> EvalResult<ValueRef> {
+        if let Some(method) = self.methods.get(&*method.inner) {
+            method.call(args, ctx)
+        } else {
+            (self.method_fallback)(ctx, method, args)
+        }
+    }
+
+    pub(crate) fn call_static_method(
+        &self,
+        ctx: CallContext,
+        method: Ident,
+        args: VarArgs,
+    ) -> EvalResult<ValueRef> {
+        if let Some(func) = self.static_methods.get(&*method.inner) {
+            func.call(args, ctx)
+        } else {
+            (self.static_method_fallback)(ctx, method, args)
+        }
     }
 
     pub(crate) fn get_field(&self, inner: &'_ str) -> Option<&Field> {
@@ -479,8 +519,13 @@ impl<T: Value> Registry<T> {
     pub(crate) fn new(engine: Rc<Engine>) -> Self {
         Self {
             inner: AnyRegistry {
+                name: T::type_name().as_ref().into(),
+                type_id: TypeId::of::<T>(),
                 engine,
                 methods: Default::default(),
+                method_fallback: unknown_method,
+                static_methods: Default::default(),
+                static_method_fallback: unknown_method,
                 fields: Default::default(),
                 field_get_fallback: Rc::new(UnknownField),
                 field_set_fallback: Rc::new(UnknownField),
@@ -511,6 +556,27 @@ impl<T: Value> Registry<T> {
         F: Method<T> + 'static,
     {
         self.inner.methods.insert(name, Rc::new(func));
+    }
+
+    pub fn register_method_fallback(
+        &mut self,
+        func: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+    ) {
+        self.inner.method_fallback = func;
+    }
+
+    pub fn register_static_method<F>(&mut self, name: &'static str, func: F)
+    where
+        F: Function + 'static,
+    {
+        self.inner.static_methods.insert(name, Rc::new(func));
+    }
+
+    pub fn register_static_method_fallback(
+        &mut self,
+        func: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+    ) {
+        self.inner.static_method_fallback = func;
     }
 
     pub fn register_call<F>(&mut self, func: F)
@@ -636,7 +702,7 @@ impl<T: Value> Registry<T> {
         self.inner.cmps.insert(tid, Rc::new(func));
     }
 
-    pub(crate) fn erase(self) -> (TypeId, AnyRegistry) {
-        (TypeId::of::<T>(), self.inner)
+    pub(crate) fn erase(self) -> AnyRegistry {
+        self.inner
     }
 }

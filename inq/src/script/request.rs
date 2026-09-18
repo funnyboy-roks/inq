@@ -120,10 +120,7 @@ impl Value for RequestValue {
                         HeaderValue::from_str("text/plain; charset=utf-8").unwrap(),
                     );
                 } else {
-                    return Err(EvalError::Custom {
-                        message: "Invalid value for body.  Must be `Json` or `String`".into(),
-                        span: ctx.span(),
-                    });
+                    return Err(ctx.error("Invalid value for body.  Must be `Json` or `String`"));
                 }
                 Ok(())
             },

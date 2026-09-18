@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use humantime::Duration;
 
+pub mod eval;
 pub mod route;
 pub mod variable;
 
@@ -38,6 +39,12 @@ pub enum VariableSubCmd {
 }
 
 #[derive(Debug, Parser)]
+pub struct EvalCommand {
+    /// File to evaluate
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Parser)]
 pub struct VariableCommand {
     #[clap(subcommand)]
     pub command: VariableSubCmd,
@@ -51,6 +58,9 @@ pub enum SubCmd {
     /// Manipulate persisted variables
     #[clap(alias = "var")]
     Variable(VariableCommand),
+    /// Evaluate the contents of a file as if it were a script
+    #[clap()]
+    Eval(EvalCommand),
 }
 
 #[derive(Debug, Parser)]

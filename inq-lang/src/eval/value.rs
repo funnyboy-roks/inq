@@ -14,6 +14,7 @@ use crate::{
 
 /// Native types
 pub mod native;
+pub mod ty;
 
 #[derive(Clone)]
 pub struct ValueRef(Rc<RefCell<dyn Value>>);
@@ -140,6 +141,14 @@ impl CallContext<()> {
             span,
             self_ref,
             ext: (),
+        }
+    }
+
+    /// Create an error at the location of [`Self::span`]
+    pub fn error(&self, message: impl Into<String>) -> EvalError {
+        EvalError::Custom {
+            message: message.into(),
+            span: self.span(),
         }
     }
 }
