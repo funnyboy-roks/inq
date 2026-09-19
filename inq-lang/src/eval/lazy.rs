@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    Span,
     eval::{
         EvalResult, Scope,
         value::{Value, ValueRef},
@@ -10,7 +11,10 @@ use crate::{
 
 #[derive(Clone, derive_more::Debug)]
 enum LazyValueRefInner {
-    Resolved(ValueRef),
+    Resolved {
+        resolved: ValueRef,
+        span: Span,
+    },
     #[debug("Pending({})", expr.clone().unwrap())]
     Pending {
         /// Snapshot of the scope at the time the variable was set
@@ -22,7 +26,7 @@ enum LazyValueRefInner {
 
 #[derive(derive_more::Debug, Clone)]
 #[debug("{:?}", inner.borrow())]
-pub(crate) struct LazyValueRef {
+pub struct LazyValueRef {
     inner: Rc<RefCell<LazyValueRefInner>>,
 }
 
@@ -30,7 +34,7 @@ impl LazyValueRef {
     pub fn get(&self) -> EvalResult<ValueRef> {
         let mut guard = self.inner.borrow_mut();
         match &mut *guard {
-            LazyValueRefInner::Resolved(v) => Ok(v.clone()),
+            LazyValueRefInner::Resolved { resolved, .. } => Ok(resolved.clone()),
             LazyValueRefInner::Pending {
                 scope_snapshot,
                 expr,
@@ -39,10 +43,14 @@ impl LazyValueRef {
                     "This take sets inner to resolved and this option is not taken anywhere else",
                 );
 
+                let span = expr.span;
                 let val = scope_snapshot.eval(expr)?;
                 drop(guard);
                 let mut inner = self.inner.borrow_mut();
-                *inner = LazyValueRefInner::Resolved(val.clone());
+                *inner = LazyValueRefInner::Resolved {
+                    resolved: val.clone(),
+                    span,
+                };
                 Ok(val)
             }
         }
@@ -51,7 +59,7 @@ impl LazyValueRef {
     /// Get value of variable, if resolved
     pub(crate) fn resolved(&self) -> Option<ValueRef> {
         match &*self.inner.borrow() {
-            LazyValueRefInner::Resolved(value_ref) => Some(value_ref.clone()),
+            LazyValueRefInner::Resolved { resolved, .. } => Some(resolved.clone()),
             LazyValueRefInner::Pending { .. } => None,
         }
     }
@@ -69,12 +77,22 @@ impl LazyValueRef {
     /// reference
     pub fn snapshot(&self) -> Self {
         let inner = match &*self.inner.borrow() {
-            LazyValueRefInner::Resolved(r) => {
-                Rc::new(RefCell::new(LazyValueRefInner::Resolved(r.snapshot())))
+            LazyValueRefInner::Resolved { resolved, span } => {
+                Rc::new(RefCell::new(LazyValueRefInner::Resolved {
+                    resolved: resolved.snapshot(),
+                    span: *span,
+                }))
             }
             LazyValueRefInner::Pending { .. } => self.inner.clone(),
         };
         Self { inner }
+    }
+
+    pub fn value_span(&self) -> Span {
+        match &*self.inner.borrow() {
+            LazyValueRefInner::Resolved { span, .. } => *span,
+            LazyValueRefInner::Pending { expr, .. } => expr.as_ref().unwrap().span,
+        }
     }
 }
 
@@ -90,7 +108,10 @@ where
 impl From<ValueRef> for LazyValueRef {
     fn from(value: ValueRef) -> Self {
         LazyValueRef {
-            inner: Rc::new(RefCell::new(LazyValueRefInner::Resolved(value))),
+            inner: Rc::new(RefCell::new(LazyValueRefInner::Resolved {
+                resolved: value,
+                span: Span::empty(),
+            })),
         }
     }
 }

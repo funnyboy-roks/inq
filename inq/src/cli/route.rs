@@ -58,8 +58,9 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
                 "Unable to parse url: {}", e
             }
         })?
-    } else if let Some(base_url) = config.engine.global().get_variable("BASE_URL")? {
-        if let Some(base_url) = base_url.downcast::<IStr>() {
+    } else if let Some(base_url_lazy) = config.engine.global().get_lazy_variable("BASE_URL")? {
+        let span = base_url_lazy.value_span();
+        if let Some(base_url) = base_url_lazy.get()?.downcast::<IStr>() {
             let string = format!("{}{}", base_url, url);
             Url::from_str(&string).map_err(|e| {
                 miette::miette! {
@@ -68,8 +69,7 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
                 }
             })?
         } else {
-            // TODO: span
-            bail!("BASE_URL must be a string");
+            return Err(EvalError::custom(span, "BASE_URL must be a string").into());
         }
     } else {
         miette::bail! {

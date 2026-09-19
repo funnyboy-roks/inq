@@ -294,40 +294,44 @@ impl Value for FunctionValue {
     }
 }
 
-impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> Ret {
-    fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
+impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(CallContext, &L, &R) -> Ret {
+    fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
         let lhs = borrow.unwrap_ref::<L>();
         let borrow = rhs.borrow();
         let rhs = borrow.unwrap_ref::<R>();
 
-        Ok(self(lhs, rhs).into())
+        Ok(self(ctx, lhs, rhs).into())
     }
 }
-impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &R) -> EvalResult<Ret> {
-    fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
+impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction
+    for fn(CallContext, &L, &R) -> EvalResult<Ret>
+{
+    fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
         let lhs = borrow.unwrap_ref::<L>();
         let borrow = rhs.borrow();
         let rhs = borrow.unwrap_ref::<R>();
 
-        Ok(self(lhs, rhs)?.into())
+        Ok(self(ctx, lhs, rhs)?.into())
     }
 }
-impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &ValueRef) -> Ret {
-    fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
+impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(CallContext, &L, &ValueRef) -> Ret {
+    fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
         let lhs = borrow.unwrap_ref::<L>();
 
-        Ok(self(lhs, &rhs).into())
+        Ok(self(ctx, lhs, &rhs).into())
     }
 }
-impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(&L, &ValueRef) -> EvalResult<Ret> {
-    fn apply(&self, lhs: ValueRef, rhs: ValueRef, _ctx: CallContext) -> EvalResult<ValueRef> {
+impl<L: Value, Ret: Into<ValueRef>> BinOpFunction
+    for fn(CallContext, &L, &ValueRef) -> EvalResult<Ret>
+{
+    fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
         let borrow = lhs.borrow();
         let lhs = borrow.unwrap_ref::<L>();
 
-        Ok(self(lhs, &rhs)?.into())
+        Ok(self(ctx, lhs, &rhs)?.into())
     }
 }
 
@@ -671,9 +675,9 @@ impl<T: Value> Registry<T> {
     pub fn register_bin_op<Rhs: 'static, Ret: 'static>(
         &mut self,
         op: BinOp,
-        func: fn(&T, &Rhs) -> Ret,
+        func: fn(CallContext, &T, &Rhs) -> Ret,
     ) where
-        fn(&T, &Rhs) -> Ret: BinOpFunction,
+        fn(CallContext, &T, &Rhs) -> Ret: BinOpFunction,
     {
         let tid = if TypeId::of::<Rhs>() == TypeId::of::<ValueRef>() {
             None

@@ -65,7 +65,7 @@ impl Value for DateTimeValue {
             this.inner.to_rfc3339().intern()
         });
 
-        registry.register_bin_op(BinOp::Add, |lhs, rhs: &DurationValue| {
+        registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &DurationValue| {
             Self::from(lhs.inner + rhs.0)
         });
     }

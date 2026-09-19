@@ -89,6 +89,17 @@ impl Scope {
         this.into()
     }
 
+    pub fn get_lazy_variable(&self, name: &str) -> EvalResult<Option<LazyValueRef>> {
+        let vars = self.variables.borrow();
+        if let Some(var) = vars.get(name) {
+            Ok(Some(var.clone()))
+        } else if let Some(parent) = &self.parent {
+            parent.get_lazy_variable(name)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub fn get_variable(&self, name: &str) -> EvalResult<Option<ValueRef>> {
         let vars = self.variables.borrow();
         if let Some(var) = vars.get(name) {

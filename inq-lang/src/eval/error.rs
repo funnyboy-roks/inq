@@ -146,6 +146,11 @@ pub enum EvalError {
         #[label = "here"]
         span: Span,
     },
+    #[error("Attempt to divide by zero")]
+    Div0 {
+        #[label = "here"]
+        span: Span,
+    },
     #[error("{}", _0)]
     #[diagnostic(transparent)]
     Transparent(miette::Error),

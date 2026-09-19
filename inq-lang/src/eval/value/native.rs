@@ -83,21 +83,23 @@ impl Value for Int {
     where
         Self: Sized,
     {
-        registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Self| lhs + rhs);
-        registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Float| lhs as Float + rhs);
-        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &IStr| {
+        registry.register_bin_op(BinOp::Add, |_, &lhs, &rhs: &Self| lhs + rhs);
+        registry.register_bin_op(BinOp::Add, |_, &lhs, &rhs: &Float| lhs as Float + rhs);
+        registry.register_bin_op(BinOp::Add, |_, &lhs, rhs: &IStr| {
             IStr::from(format!("{}{}", lhs, rhs))
         });
 
-        registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Self| lhs - rhs);
-        registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Float| lhs as Float - rhs);
+        registry.register_bin_op(BinOp::Sub, |_, &lhs, &rhs: &Self| lhs - rhs);
+        registry.register_bin_op(BinOp::Sub, |_, &lhs, &rhs: &Float| lhs as Float - rhs);
 
-        registry.register_bin_op(BinOp::Mul, |&lhs, &rhs: &Self| lhs * rhs);
-        registry.register_bin_op(BinOp::Mul, |&lhs, &rhs: &Float| lhs as Float * rhs);
+        registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Self| lhs * rhs);
+        registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Float| lhs as Float * rhs);
 
-        // TODO: div 0
-        registry.register_bin_op(BinOp::Div, |&lhs, &rhs: &Self| lhs / rhs);
-        registry.register_bin_op(BinOp::Div, |&lhs, &rhs: &Float| lhs as Float / rhs);
+        registry.register_bin_op(BinOp::Div, |ctx, &lhs, &rhs: &Self| {
+            lhs.checked_div(rhs)
+                .ok_or(EvalError::Div0 { span: ctx.span() })
+        });
+        registry.register_bin_op(BinOp::Div, |_, &lhs, &rhs: &Float| lhs as Float / rhs);
 
         registry.register_unary_op(UnaryOp::Prefix(PrefixOp::Neg), |_, &i| -i);
 
@@ -148,21 +150,26 @@ impl Value for Float {
     where
         Self: Sized,
     {
-        registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Self| lhs + rhs);
-        registry.register_bin_op(BinOp::Add, |&lhs, &rhs: &Int| lhs + rhs as Float);
-        registry.register_bin_op(BinOp::Add, |&lhs, rhs: &IStr| {
+        registry.register_bin_op(BinOp::Add, |_, &lhs, &rhs: &Self| lhs + rhs);
+        registry.register_bin_op(BinOp::Add, |_, &lhs, &rhs: &Int| lhs + rhs as Float);
+        registry.register_bin_op(BinOp::Add, |_, &lhs, rhs: &IStr| {
             IStr::from(format!("{}{}", lhs, rhs))
         });
 
-        registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Self| lhs - rhs);
-        registry.register_bin_op(BinOp::Sub, |&lhs, &rhs: &Int| lhs - rhs as Float);
+        registry.register_bin_op(BinOp::Sub, |_, &lhs, &rhs: &Self| lhs - rhs);
+        registry.register_bin_op(BinOp::Sub, |_, &lhs, &rhs: &Int| lhs - rhs as Float);
 
-        registry.register_bin_op(BinOp::Mul, |&lhs, &rhs: &Self| lhs * rhs);
-        registry.register_bin_op(BinOp::Mul, |&lhs, &rhs: &Int| lhs * rhs as Float);
+        registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Self| lhs * rhs);
+        registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Int| lhs * rhs as Float);
 
-        // TODO: div 0
-        registry.register_bin_op(BinOp::Div, |&lhs, &rhs: &Self| lhs / rhs);
-        registry.register_bin_op(BinOp::Div, |&lhs, &rhs: &Int| lhs / rhs as Float);
+        registry.register_bin_op(BinOp::Div, |ctx, &lhs, &rhs: &Self| {
+            if rhs == 0.0 {
+                Err(EvalError::Div0 { span: ctx.span() })
+            } else {
+                Ok(lhs / rhs)
+            }
+        });
+        registry.register_bin_op(BinOp::Div, |_, &lhs, &rhs: &Int| lhs / rhs as Float);
 
         registry.register_unary_op(UnaryOp::Prefix(PrefixOp::Neg), |_, &i| -i);
 
@@ -318,7 +325,7 @@ impl Value for IStr {
 
         registry.register_cmp(|lhs, rhs: &IStr| lhs.partial_cmp(rhs));
 
-        registry.register_bin_op(BinOp::Add, |lhs, rhs: &ValueRef| {
+        registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &ValueRef| {
             let mut out = String::from(lhs);
             rhs.borrow().to_string(&mut out);
             IStr::from(out)

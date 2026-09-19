@@ -51,8 +51,8 @@ impl Value for DurationValue {
     where
         Self: Sized,
     {
-        registry.register_bin_op(BinOp::Add, |lhs, rhs: &Self| Self(lhs.0 + rhs.0));
-        registry.register_bin_op(BinOp::Sub, |lhs, rhs: &Self| Self(lhs.0 - rhs.0));
+        registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &Self| Self(lhs.0 + rhs.0));
+        registry.register_bin_op(BinOp::Sub, |_, lhs, rhs: &Self| Self(lhs.0 - rhs.0));
         registry.register_method::<fn(&mut _) -> _>("secs", |this: &mut Self| this.0.as_secs_f64());
         registry.register_method::<fn(&mut _) -> _>("millis", |this: &mut Self| {
             this.0.as_millis() as Int
