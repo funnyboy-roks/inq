@@ -1,7 +1,6 @@
 use std::{fmt::Display, rc::Rc};
 
 use bytes::Bytes;
-// TODO: use cookie::Cookie;
 use inq_lang::{
     IStr,
     eval::{Engine, EvalResult, registry::FunctionValue, value::ValueRef},
@@ -11,14 +10,16 @@ use miette::{IntoDiagnostic, bail};
 use crate::{
     decode::{decode_brotli, decode_deflate, decode_gzip, decode_zstd},
     script::{
-        bytes_value::BytesValue, client::ClientConfig, duration::DurationValue,
-        header::HeaderMapValue, json::Json, request::RequestValue, response::ResponseValue,
-        url::UrlValue,
+        bytes_value::BytesValue, client::ClientConfig, cookie::CookieValue,
+        datetime::DateTimeValue, duration::DurationValue, header::HeaderMapValue, json::Json,
+        request::RequestValue, response::ResponseValue, url::UrlValue,
     },
 };
 
 pub(crate) mod bytes_value;
 pub(crate) mod client;
+pub(crate) mod cookie;
+pub(crate) mod datetime;
 pub(crate) mod duration;
 pub(crate) mod header;
 pub(crate) mod json;
@@ -119,6 +120,8 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<Json>();
     engine.register_type::<BytesValue>();
     engine.register_type::<DurationValue>();
+    engine.register_type::<CookieValue>();
+    engine.register_type::<DateTimeValue>();
 
     // plugins
     // RandomPackage::new().register_into_engine(&mut engine);
@@ -164,24 +167,6 @@ pub fn base_engine() -> Rc<Engine> {
         }),
         true,
     );
-
-    // cookie type
-    // engine
-    //     .register_fn("parse_cookie", |s: ImmutableString| {
-    //         Cookie::from_str(&s).map_err(|e| {
-    //             Box::new(EvalAltResult::ErrorSystem(
-    //                 "Unable to parse cookie".into(),
-    //                 Box::new(e),
-    //             ))
-    //         })
-    //     })
-    //     .register_get("name", |cookie: &mut Cookie| cookie.name().to_string())
-    //     .register_get("value", |cookie: &mut Cookie| cookie.value().to_string())
-    //     .register_get("expires_at", |cookie: &mut Cookie| {
-    //         cookie
-    //             .expires_datetime()
-    //             .map(|d| DateTime::from_timestamp(d.unix_timestamp(), 0).unwrap())
-    //     });
 
     engine
 }

@@ -33,6 +33,7 @@ pub(crate) struct RequestValue {
     pub body: RequestBody,
     pub client: Rc<RefCell<ClientConfig>>,
 }
+
 impl RequestValue {
     pub(crate) fn new(client: CliClientConfig, method: Method, url: Url) -> Self {
         Self {
@@ -104,6 +105,7 @@ impl Value for RequestValue {
         registry.register_field_get("headers", |_, this| {
             ValueRef::from_ref(this.headers.clone())
         });
+        registry.register_field_get("client", |_, this| ValueRef::from_ref(this.client.clone()));
         registry.register_field_get_set(
             "body",
             |_, this| match &this.body {
