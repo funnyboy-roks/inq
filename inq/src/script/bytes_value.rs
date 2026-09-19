@@ -107,7 +107,7 @@ impl Value for BytesValue {
                 .collect::<Array>()
         });
         registry.register_method::<fn(&_) -> _>("to_utf8_string", |this| {
-            Some(IStr::from(str::from_utf8(&*this.inner.borrow()).ok()?))
+            Some(IStr::from(str::from_utf8(&this.inner.borrow()).ok()?))
         });
         registry.register_method::<fn(&_) -> _>("to_hex", |this| {
             Some(IStr::from(hex::encode(&*this.inner.borrow())))

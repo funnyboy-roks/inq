@@ -99,7 +99,7 @@ impl From<ClientConfig> for Client {
             target_os = "watchos",
         ))]
         if let Some(iface) = &value.interface {
-            builder = builder.interface(&iface);
+            builder = builder.interface(iface);
         }
 
         builder.build().unwrap()

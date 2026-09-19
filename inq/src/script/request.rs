@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, ops::Deref, rc::Rc};
 
 use inq_lang::{
     IStr,
@@ -49,7 +49,7 @@ impl RequestValue {
     }
 
     pub(crate) fn into_reqwest(self) -> (Request, Client) {
-        ((&self).into(), (&*self.client).clone().into())
+        ((&self).into(), self.client.deref().clone().into())
     }
 }
 
