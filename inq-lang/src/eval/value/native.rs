@@ -3,11 +3,10 @@ use std::{borrow::Cow, cell::RefCell, cmp::Ordering, fmt::Debug, rc::Rc, str::Fr
 use indexmap::IndexMap;
 
 use crate::{
-    Span,
+    Span, StringExt,
     eval::{
         EvalError, EvalResult,
         registry::{BinOp, PrefixOp, Registry, UnaryOp, VarArgs},
-        value::CallContext,
     },
     parse::Ident,
     string::IStr,
@@ -116,7 +115,7 @@ impl Value for Int {
                 Ok(to_string_radix(this, radix))
             },
         );
-        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+        registry.register_static_method("parse", |ctx, s: IStr| {
             Int::from_str(&s).map_err(|e| ctx.error(format!("Cannot parse {:?} as Int: {}", s, e)))
         });
 
@@ -184,7 +183,7 @@ impl Value for Float {
         }
         proxy!(floor ceil round trunc fract sqrt exp exp2 ln log2 log10 cbrt sin cos);
 
-        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+        registry.register_static_method("parse", |ctx, s: IStr| {
             Self::from_str(&s)
                 .map_err(|e| ctx.error(format!("Cannot parse {:?} as Float: {}", s, e)))
         });
@@ -280,8 +279,8 @@ impl Value for IStr {
         });
         registry.register_method::<fn(&_, _) -> _>(
             "replace",
-            |this, (needle, replacement): (IStr, IStr)| -> IStr {
-                this.replace(&*needle, &replacement).into()
+            |this, (needle, replacement): (IStr, IStr)| {
+                this.replace(&*needle, &replacement).intern()
             },
         );
         registry.register_method::<fn(_, &_, _) -> _>(
@@ -313,7 +312,7 @@ impl Value for IStr {
                     )));
                 }
 
-                Ok(IStr::from(&this[start as usize..end as usize]))
+                Ok(this[start as usize..end as usize].intern())
             },
         );
         registry.register_method::<fn(&_) -> _>("chars", |this| {
@@ -322,6 +321,7 @@ impl Value for IStr {
                 .map(ValueRef::from)
                 .collect::<Array>()
         });
+        registry.register_method::<fn(&_) -> _>("trim", |this| this.trim().intern());
 
         registry.register_cmp(|lhs, rhs: &IStr| lhs.partial_cmp(rhs));
 

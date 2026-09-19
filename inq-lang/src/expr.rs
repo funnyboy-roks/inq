@@ -434,6 +434,7 @@ impl Expr {
     }
 
     fn parse_postfix(tokens: &mut TokenStream, lhs: Self) -> Result<Self, ParseError> {
+        let lhs_span = lhs.span;
         let op = tokens.expect_any()?;
         let lhs = match op.inner {
             TokenTreeInner::Group {
@@ -461,7 +462,7 @@ impl Expr {
                         index: Box::new(inner_tokens.parse()?),
                         question: tokens.next_if(Punct::Question).map(|t| t.span),
                     },
-                    span,
+                    span: lhs_span + span,
                 }
             }
             TokenTreeInner::Punct(Punct::Bang) => Expr {
@@ -470,7 +471,7 @@ impl Expr {
                     op_span: op.span,
                     operand: Box::new(lhs),
                 },
-                span: op.span,
+                span: lhs_span + op.span,
             },
             TokenTreeInner::Punct(Punct::Dot) => {
                 let span = tokens.peek().map(|t| t.span);
@@ -485,7 +486,7 @@ impl Expr {
                             method: ident,
                             args,
                         },
-                        span: op.span + span + tokens.span(),
+                        span: lhs_span + op.span + span + tokens.span(),
                     }
                 } else {
                     Expr {
@@ -493,7 +494,7 @@ impl Expr {
                             value: Box::new(lhs),
                             field: ident,
                         },
-                        span: op.span + span,
+                        span: lhs_span + op.span + span,
                     }
                 }
             }

@@ -4,7 +4,7 @@ use inq_lang::{
     IStr, StringExt,
     eval::{
         EvalResult,
-        registry::Registry,
+        registry::{FnCtx, Registry},
         value::{
             CallContext, Value, ValueRef,
             native::{Array, Float, Int, Null, Object},
@@ -53,11 +53,11 @@ impl Value for Json {
 }
 
 impl Json {
-    pub fn from_value(ctx: CallContext, arg: ValueRef) -> EvalResult<Self> {
+    pub fn from_value(ctx: CallContext<FnCtx>, arg: ValueRef) -> EvalResult<Self> {
         Json::json_inner(&ctx, arg).map(RefCell::new).map(Self)
     }
 
-    pub fn json_inner(ctx: &CallContext, arg: ValueRef) -> EvalResult<serde_json::Value> {
+    pub fn json_inner(ctx: &CallContext<FnCtx>, arg: ValueRef) -> EvalResult<serde_json::Value> {
         #[allow(clippy::redundant_pattern_matching)]
         if let Some(s) = arg.downcast::<IStr>() {
             Ok(serde_json::Value::String(s.into()))

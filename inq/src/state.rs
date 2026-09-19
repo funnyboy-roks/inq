@@ -6,8 +6,8 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use inq_lang::{IStr, eval::EvalError};
-use miette::Context;
+use inq_lang::IStr;
+use miette::{Context, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 use crate::config::Config;
@@ -97,9 +97,10 @@ impl State {
                     },
                 );
             } else {
-                return Err(
-                    EvalError::custom(var.span, "Persisted variables must be strings").into(),
-                );
+                bail! {
+                    labels = vec![var.span.with_label("Defined here")],
+                    "Persisted variables must be strings"
+                }
             }
         }
         Ok(())

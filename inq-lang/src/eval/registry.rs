@@ -4,7 +4,7 @@ use std::{
 };
 
 use crate::{
-    IStr,
+    IStr, Span,
     eval::{
         Engine, EvalError, EvalResult,
         value::{CallContext, Value, ValueRef},
@@ -88,9 +88,9 @@ impl VarArgs {
         Some(r.clone())
     }
 
-    fn error<T>(
+    fn error<C, T>(
         &self,
-        ctx: &CallContext,
+        ctx: &CallContext<C>,
         expected: impl IntoIterator<Item = impl Into<String>>,
     ) -> EvalResult<T> {
         Err(EvalError::InvalidArgs {
@@ -102,17 +102,17 @@ impl VarArgs {
 }
 
 pub trait FromVarArgs: Sized {
-    fn from_varargs(ctx: &CallContext, varargs: VarArgs) -> EvalResult<Self>;
+    fn from_varargs(ctx: &CallContext<FnCtx>, varargs: VarArgs) -> EvalResult<Self>;
 }
 
 impl FromVarArgs for VarArgs {
-    fn from_varargs(_ctx: &CallContext, varargs: VarArgs) -> EvalResult<Self> {
+    fn from_varargs(_ctx: &CallContext<FnCtx>, varargs: VarArgs) -> EvalResult<Self> {
         Ok(varargs)
     }
 }
 
 impl<V: Value + Clone> FromVarArgs for V {
-    fn from_varargs(ctx: &CallContext, mut varargs: VarArgs) -> EvalResult<Self> {
+    fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected: [Cow<'static, str>; _] = [V::type_name()];
         if varargs.len() != 1 {
             return varargs.error(ctx, expected);
@@ -127,7 +127,7 @@ impl<V: Value + Clone> FromVarArgs for V {
     }
 }
 impl<V: Value + Clone> FromVarArgs for Option<V> {
-    fn from_varargs(ctx: &CallContext, mut varargs: VarArgs) -> EvalResult<Self> {
+    fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected: [Cow<'static, str>; _] = [V::type_name()];
         if varargs.len() > 1 {
             return varargs.error(ctx, expected);
@@ -144,7 +144,7 @@ impl<V: Value + Clone> FromVarArgs for Option<V> {
     }
 }
 impl FromVarArgs for ValueRef {
-    fn from_varargs(ctx: &CallContext, mut varargs: VarArgs) -> EvalResult<Self> {
+    fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected = [Cow::Borrowed("Any")];
         if varargs.len() != 1 {
             return varargs.error(ctx, expected);
@@ -165,7 +165,7 @@ macro_rules! impl_varargs {
 
         impl FromVarArgs for (ValueRef, $(impl_varargs!(# $gen => ValueRef),)*) {
             #[allow(unused_mut)]
-            fn from_varargs(ctx: &CallContext, mut varargs: VarArgs) -> EvalResult<Self> {
+            fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
                 let expected: [Cow<'static, str>; _] = [$(impl_varargs!(# $gen => Cow::Borrowed("Any")),)*];
                 if varargs.len() != count!($gen0 $($gen)*) {
                     return varargs.error(ctx, expected);
@@ -181,7 +181,7 @@ macro_rules! impl_varargs {
     (@ $($gen: ident)*) => {
         impl<$($gen: Value + Clone,)*> FromVarArgs for ($($gen,)*) {
             #[allow(unused_mut)]
-            fn from_varargs(ctx: &CallContext, mut varargs: VarArgs) -> EvalResult<Self> {
+            fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
                 let expected: [Cow<'static, str>; _] = [$($gen::type_name()),*];
                 if varargs.len() != count!($($gen)*) {
                     return varargs.error(ctx, expected);
@@ -203,32 +203,28 @@ macro_rules! impl_varargs {
 }
 impl_varargs!(V12 V11 V10 V9 V8 V7 V6 V5 V4 V3 V2 V1);
 
-pub trait Function {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef>;
+#[derive(Debug, Clone)]
+pub struct FnCtx {
+    /// Span of each arg passed into the function
+    pub arg_spans: Vec<Span>,
 }
 
-impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(CallContext, V) -> Ret {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
+pub trait Function {
+    fn call(&self, varargs: VarArgs, ctx: CallContext<FnCtx>) -> EvalResult<ValueRef>;
+}
+
+impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(CallContext<FnCtx>, V) -> Ret {
+    fn call(&self, varargs: VarArgs, ctx: CallContext<FnCtx>) -> EvalResult<ValueRef> {
         let args = V::from_varargs(&ctx, varargs)?;
         Ok(self(ctx, args).into())
     }
 }
-impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(CallContext, V) -> EvalResult<Ret> {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
+impl<V: FromVarArgs, Ret: Into<ValueRef>> Function
+    for fn(CallContext<FnCtx>, V) -> EvalResult<Ret>
+{
+    fn call(&self, varargs: VarArgs, ctx: CallContext<FnCtx>) -> EvalResult<ValueRef> {
         let args = V::from_varargs(&ctx, varargs)?;
         self(ctx, args).map(Into::into)
-    }
-}
-impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(V) -> Ret {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let args = V::from_varargs(&ctx, varargs)?;
-        Ok(self(args).into())
-    }
-}
-impl<V: FromVarArgs, Ret: Into<ValueRef>> Function for fn(V) -> EvalResult<Ret> {
-    fn call(&self, varargs: VarArgs, ctx: CallContext) -> EvalResult<ValueRef> {
-        let args = V::from_varargs(&ctx, varargs)?;
-        self(args).map(Into::into)
     }
 }
 
@@ -248,9 +244,9 @@ pub trait CmpFunction {
 pub struct FunctionValue(#[debug(skip)] pub Rc<dyn Function>);
 
 impl FunctionValue {
-    pub fn new<V, R>(func: fn(CallContext, V) -> R) -> Self
+    pub fn new<V, R>(func: fn(CallContext<FnCtx>, V) -> R) -> Self
     where
-        fn(CallContext, V) -> R: Function + 'static,
+        fn(CallContext<FnCtx>, V) -> R: Function + 'static,
     {
         Self(Rc::new(func))
     }
@@ -418,7 +414,7 @@ impl Debug for Indexer {
     }
 }
 
-fn unknown_method(ctx: CallContext, method: Ident, _: VarArgs) -> EvalResult<ValueRef> {
+fn unknown_method(ctx: CallContext<FnCtx>, method: Ident, _: VarArgs) -> EvalResult<ValueRef> {
     Err(EvalError::UnknownMethod {
         ty: ctx.self_ref.type_name_of().into(),
         method,
@@ -438,10 +434,10 @@ pub(crate) struct AnyRegistry {
     engine: Rc<Engine>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     methods: HashMap<&'static str, Rc<dyn DynMethod>>,
-    method_fallback: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+    method_fallback: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     static_methods: HashMap<&'static str, Rc<dyn Function>>,
-    static_method_fallback: fn(CallContext, Ident, VarArgs) -> Result<ValueRef, EvalError>,
+    static_method_fallback: fn(CallContext<FnCtx>, Ident, VarArgs) -> Result<ValueRef, EvalError>,
     fields: HashMap<&'static str, Field>,
     #[debug("{}", if call.is_some() { "Some(..)" } else { "None" })]
     pub(crate) field_get_fallback: Rc<dyn FieldGetFallback>,
@@ -467,7 +463,7 @@ impl AnyRegistry {
 
     pub(crate) fn call_method(
         &self,
-        ctx: CallContext,
+        ctx: CallContext<FnCtx>,
         method: Ident,
         args: VarArgs,
     ) -> EvalResult<ValueRef> {
@@ -480,7 +476,7 @@ impl AnyRegistry {
 
     pub(crate) fn call_static_method(
         &self,
-        ctx: CallContext,
+        ctx: CallContext<FnCtx>,
         method: Ident,
         args: VarArgs,
     ) -> EvalResult<ValueRef> {
@@ -560,21 +556,24 @@ impl<T: Value> Registry<T> {
 
     pub fn register_method_fallback(
         &mut self,
-        func: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+        func: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
     ) {
         self.inner.method_fallback = func;
     }
 
-    pub fn register_static_method<F>(&mut self, name: &'static str, func: F)
-    where
-        F: Function + 'static,
+    pub fn register_static_method<V, R>(
+        &mut self,
+        name: &'static str,
+        func: fn(CallContext<FnCtx>, V) -> R,
+    ) where
+        fn(CallContext<FnCtx>, V) -> R: Function + 'static,
     {
         self.inner.static_methods.insert(name, Rc::new(func));
     }
 
     pub fn register_static_method_fallback(
         &mut self,
-        func: fn(CallContext, Ident, VarArgs) -> EvalResult<ValueRef>,
+        func: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
     ) {
         self.inner.static_method_fallback = func;
     }

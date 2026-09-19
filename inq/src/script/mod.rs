@@ -3,7 +3,11 @@ use std::{fmt::Display, rc::Rc};
 use bytes::Bytes;
 use inq_lang::{
     IStr,
-    eval::{Engine, EvalResult, registry::FunctionValue, value::ValueRef},
+    eval::{
+        Engine, EvalResult,
+        registry::{FunctionValue, VarArgs},
+        value::ValueRef,
+    },
 };
 use miette::{IntoDiagnostic, bail};
 
@@ -125,25 +129,33 @@ pub fn base_engine() -> Rc<Engine> {
 
     // plugins
     // RandomPackage::new().register_into_engine(&mut engine);
-    // FilesystemPackage::new().register_into_engine(&mut engine);
 
     let global = engine.global();
 
-    fn env(s: &IStr) -> ValueRef {
-        std::env::var(&**s)
-            .ok()
-            .map(IStr::from)
-            .map(ValueRef::new)
-            .unwrap_or_else(ValueRef::null)
-    }
-    global.set_variable("env", env as fn(&IStr) -> ValueRef, true);
+    global.set_variable(
+        "env",
+        FunctionValue::new(|_ctx, var: IStr| {
+            std::env::var(&*var)
+                .ok()
+                .map(IStr::from)
+                .map(ValueRef::new)
+                .unwrap_or_else(ValueRef::null)
+        }),
+        true,
+    );
 
     global.set_variable(
         "print",
-        FunctionValue::new(|_ctx, s: ValueRef| {
-            let mut out = String::new();
-            s.value().to_string(&mut out);
-            println!("{}", out);
+        FunctionValue::new(|_ctx, s: VarArgs| {
+            for (i, a) in s.inner.into_iter().enumerate() {
+                if i > 0 {
+                    print!(" ")
+                }
+                let mut out = String::new();
+                a.value().to_string(&mut out);
+                print!("{}", out);
+            }
+            println!();
         }),
         true,
     );
@@ -162,8 +174,37 @@ pub fn base_engine() -> Rc<Engine> {
             if b {
                 Ok(ValueRef::null())
             } else {
-                Err(ctx.error("Assertion failed"))
+                Err(ctx.error_args("Assertion failed", [(0, "Expected to be true")]))
             }
+        }),
+        true,
+    );
+
+    global.set_variable(
+        "read_text_file",
+        FunctionValue::new(|ctx, s: IStr| {
+            std::fs::read_to_string(&*s)
+                .map_err(|e| {
+                    ctx.error_args(
+                        format!("Unable to read text file: {}", e),
+                        [(0, "this path")],
+                    )
+                })
+                .map(IStr::from)
+        }),
+        true,
+    );
+    global.set_variable(
+        "read_raw_file",
+        FunctionValue::new(|ctx, s: IStr| {
+            std::fs::read(&*s)
+                .map_err(|e| {
+                    ctx.error_args(
+                        format!("Unable to read raw file: {}", e),
+                        [(0, "this path")],
+                    )
+                })
+                .map(BytesValue::from)
         }),
         true,
     );

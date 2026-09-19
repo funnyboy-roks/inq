@@ -10,7 +10,7 @@ use crate::{
     IStr, Span,
     eval::{
         EvalError, EvalResult,
-        registry::Registry,
+        registry::{FnCtx, Registry},
         value::{
             native::{Float, Int, Null},
             ty::TypeValue,
@@ -227,14 +227,6 @@ impl CallContext<()> {
             ext: (),
         }
     }
-
-    /// Create an error at the location of [`Self::span`]
-    pub fn error(&self, message: impl Into<String>) -> EvalError {
-        EvalError::Custom {
-            message: message.into(),
-            span: self.span(),
-        }
-    }
 }
 
 impl<T> CallContext<T> {
@@ -248,6 +240,39 @@ impl<T> CallContext<T> {
             self_ref,
             ext,
         }
+    }
+
+    /// Create an error at the location of [`Self::span`]
+    pub fn error(&self, message: impl Into<String>) -> EvalError {
+        EvalError::Custom {
+            message: message.into(),
+            span: self.span(),
+        }
+    }
+}
+
+impl CallContext<FnCtx> {
+    /// Create an error pointing to a specific argument of this function call.
+    ///
+    /// Panics if arg is out of bounds for `arg_spans`
+    pub fn error_arg(&self, arg: usize, message: impl Display) -> EvalError {
+        EvalError::Custom {
+            message: message.to_string(),
+            span: self.arg_spans[arg],
+        }
+    }
+    /// Create an error pointing to a specific argument of this function call.
+    ///
+    /// Panics if arg is out of bounds for `arg_spans`
+    pub fn error_args(
+        &self,
+        message: impl Display,
+        labels: impl IntoIterator<Item = (usize, impl Into<String>)>,
+    ) -> EvalError {
+        EvalError::Transparent(miette::miette! {
+            labels = labels.into_iter().map(|(n, msg)| self.arg_spans[n].with_label(msg)).collect::<Vec<_>>(),
+            "{}", message
+        })
     }
 }
 

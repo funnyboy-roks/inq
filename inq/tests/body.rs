@@ -1,5 +1,4 @@
-use inq::run;
-use inq::testing::make_cli;
+use inq::testing::run_cli_test;
 use mockito::Matcher;
 use tempfile::TempDir;
 
@@ -24,7 +23,7 @@ fn text() {
         .match_header("content-type", "text/plain; charset=utf-8")
         .with_status(200)
         .create();
-    run(make_cli(tempdir.path(), "test"), &config).unwrap();
+    run_cli_test(tempdir.path(), "test", config).unwrap();
 
     mock.assert();
 }
@@ -50,7 +49,7 @@ fn json() {
         .match_header("content-type", "application/json")
         .with_status(200)
         .create();
-    run(make_cli(tempdir.path(), "test"), &config).unwrap();
+    run_cli_test(tempdir.path(), "test", config).unwrap();
 
     mock.assert();
 }
@@ -72,7 +71,7 @@ fn empty() {
         .match_body(Matcher::Missing)
         .with_status(200)
         .create();
-    run(make_cli(tempdir.path(), "test"), &config).unwrap();
+    run_cli_test(tempdir.path(), "test", config).unwrap();
 
     mock.assert();
 }

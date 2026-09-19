@@ -3,7 +3,7 @@ use std::{cell::RefCell, net::SocketAddr, rc::Rc};
 use inq_lang::{
     IStr, StringExt,
     eval::{
-        registry::Registry,
+        registry::{FnCtx, Registry},
         value::{CallContext, Value, native::Int},
     },
 };
@@ -135,18 +135,18 @@ impl Value for ResponseValue {
         registry.register_field_get("content_length", |_, this| {
             this.content_length.map(|n| n as Int).unwrap_or_default()
         });
-        registry.register_method::<fn(CallContext, &_) -> _>("json", |ctx, this| {
+        registry.register_method::<fn(CallContext<FnCtx>, &_) -> _>("json", |ctx, this| {
             this.body
                 .json()
                 .map_err(|e| ctx.error(format!("Unable to parse response body as json: {}", e)))
         });
-        registry.register_method::<fn(CallContext, &_) -> _>("text", |ctx, this| {
+        registry.register_method::<fn(CallContext<FnCtx>, &_) -> _>("text", |ctx, this| {
             this.body
                 .text()
                 .map_err(|e| ctx.error(format!("Unable to parse response body as text: {}", e)))
                 .map(IStr::from)
         });
-        registry.register_method::<fn(CallContext, &_) -> _>("bytes", |ctx, this| {
+        registry.register_method::<fn(CallContext<FnCtx>, &_) -> _>("bytes", |ctx, this| {
             this.body
                 .bytes()
                 .map_err(|e| ctx.error(format!("{}", e)))

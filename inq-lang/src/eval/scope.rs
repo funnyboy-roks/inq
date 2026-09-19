@@ -474,14 +474,16 @@ impl Scope {
             } => {
                 let value = self.eval(*value)?;
 
+                let mut arg_spans = Vec::with_capacity(args.len());
                 let mut eval_args = Vec::with_capacity(args.len());
                 for a in args {
+                    arg_spans.push(a.span);
                     eval_args.push(self.eval(a)?);
                 }
 
                 let span = method.span;
                 let reg = self.engine.types().get(&value, span)?;
-                let ctx = CallContext::new(span, value);
+                let ctx = CallContext::new_ext(span, value, registry::FnCtx { arg_spans });
                 reg.call_method(ctx, method, VarArgs::new(eval_args))
             }
             Ast::Index {
@@ -514,8 +516,10 @@ impl Scope {
                 }
             }
             Ast::FunctionCall { func, args, span } => {
+                let mut arg_spans = Vec::with_capacity(args.len());
                 let mut eval_args = Vec::with_capacity(args.len());
                 for a in args {
+                    arg_spans.push(a.span);
                     eval_args.push(self.make_child().eval(a)?);
                 }
                 let func = self.eval(*func)?;
@@ -523,7 +527,7 @@ impl Scope {
                 if let Some(call) = &reg.call {
                     call.call(
                         VarArgs::new(eval_args),
-                        CallContext::new(span, func.clone()),
+                        CallContext::new_ext(span, func.clone(), registry::FnCtx { arg_spans }),
                     )
                 } else {
                     Err(EvalError::NotCallable {

@@ -1,10 +1,7 @@
 use std::{rc::Rc, str::FromStr};
 
 use cookie::Cookie;
-use inq_lang::{
-    IStr, StringExt,
-    eval::value::{CallContext, Value},
-};
+use inq_lang::{IStr, StringExt, eval::value::Value};
 
 use crate::{debug_fmt, script::datetime::DateTimeValue};
 
@@ -46,7 +43,7 @@ impl Value for CookieValue {
     where
         Self: Sized,
     {
-        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+        registry.register_static_method("parse", |ctx, s: IStr| {
             Ok(Self {
                 inner: Cookie::from_str(&s)
                     .map_err(|e| ctx.error(format!("Unable to parse cookie: {}", e)))?,

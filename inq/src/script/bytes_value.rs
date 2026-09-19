@@ -6,7 +6,7 @@ use inq_lang::{
     eval::{
         EvalError,
         value::{
-            CallContext, Value, ValueRef,
+            Value, ValueRef,
             native::{Array, Int, normalise_index, normalise_index_error},
         },
     },
@@ -65,43 +65,34 @@ impl Value for BytesValue {
     where
         Self: Sized,
     {
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_hex",
-            |ctx: CallContext, hex: IStr| {
-                hex::decode(&*hex)
-                    .map(BytesValue::from)
-                    .map_err(|e| ctx.error(format!("Unable to decode hex: {}", e)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_base64",
-            |ctx: CallContext, base64: IStr| {
-                BASE64_STANDARD
-                    .decode(&*base64)
-                    .map(BytesValue::from)
-                    .map_err(|e| ctx.error(format!("Unable to decode hex: {}", e)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_array",
-            |ctx: CallContext, array: Array| {
-                let array = array.into_vec();
-                let mut out = Vec::with_capacity(array.len());
-                for v in array {
-                    if let Some(n) = v.downcast::<Int>()
-                        && (0..=255).contains(&n)
-                    {
-                        out.push(n as u8);
-                    } else {
-                        return Err(ctx.error(format!(
-                            "All values in array must be integers within [0, 255], got {}",
-                            v.type_name_of()
-                        )));
-                    }
+        registry.register_static_method("from_hex", |ctx, hex: IStr| {
+            hex::decode(&*hex)
+                .map(BytesValue::from)
+                .map_err(|e| ctx.error(format!("Unable to decode hex: {}", e)))
+        });
+        registry.register_static_method("from_base64", |ctx, base64: IStr| {
+            BASE64_STANDARD
+                .decode(&*base64)
+                .map(BytesValue::from)
+                .map_err(|e| ctx.error(format!("Unable to decode hex: {}", e)))
+        });
+        registry.register_static_method("from_array", |ctx, array: Array| {
+            let array = array.into_vec();
+            let mut out = Vec::with_capacity(array.len());
+            for v in array {
+                if let Some(n) = v.downcast::<Int>()
+                    && (0..=255).contains(&n)
+                {
+                    out.push(n as u8);
+                } else {
+                    return Err(ctx.error(format!(
+                        "All values in array must be integers within [0, 255], got {}",
+                        v.type_name_of()
+                    )));
                 }
-                Ok(Self::from(out))
-            },
-        );
+            }
+            Ok(Self::from(out))
+        });
 
         registry.register_method::<fn(&_) -> _>("len", |this| this.inner.borrow().len() as Int);
         registry.register_method::<fn(&_) -> _>("to_array", |this| {

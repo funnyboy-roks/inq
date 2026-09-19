@@ -6,13 +6,7 @@ let cookie = "";
 #[persist]
 let user = "john";
 #[persist]
-let password = read_text_file("./password");
-
-route foo(arg = null) => GET "/echo?foo=$arg"
-    before {
-        request.body = Bytes.from_hex("123981203985");
-        debug(request);
-    }
+let password = read_text_file("./password").trim();
 
 route login() => POST "/login"
     before {
@@ -22,8 +16,9 @@ route login() => POST "/login"
         })
     }
     after {
-        let cookie_header = response.headers["set-cookie"].parse_cookie();
-        cookie = expires(cookie_header.value, cookie_header.expires_at);
+        let cookie_header = Cookie.parse(response.headers["set-cookie"]);
+        debug(cookie_header);
+        cookie = cookie_header.expires_at;
     }
 
 route file => POST "/echo"
@@ -33,7 +28,7 @@ route file => POST "/echo"
 
 route raw => POST "/echo"
     before {
-        body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=")
+        body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
     }
 
 route status(code = 401) => GET "/status/${code}";

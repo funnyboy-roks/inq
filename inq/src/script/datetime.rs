@@ -5,10 +5,7 @@ use chrono_humanize::Humanize;
 use cookie::time::OffsetDateTime;
 use inq_lang::{
     IStr, StringExt,
-    eval::{
-        registry::BinOp,
-        value::{CallContext, Value},
-    },
+    eval::{registry::BinOp, value::Value},
 };
 
 use crate::script::duration::DurationValue;
@@ -48,24 +45,29 @@ impl Value for DateTimeValue {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(fmt, "DateTime({})", self.inner.humanize())
+        write!(fmt, "DateTime({})", self.inner.to_rfc3339())
     }
 
     fn register(registry: &mut inq_lang::eval::registry::Registry<Self>)
     where
         Self: Sized,
     {
-        registry.register_static_method::<fn(_) -> _>("now", |()| Self::from(Utc::now()));
-        registry.register_static_method::<fn(_, _) -> _>("parse", |ctx: CallContext, s: IStr| {
+        registry.register_static_method("now", |_, ()| Self::from(Utc::now()));
+        registry.register_static_method("parse", |ctx, s: IStr| {
             s.parse::<DateTime<Utc>>()
                 .map(Self::from)
                 .map_err(|e| ctx.error(format!("Unable to parse DateTime: {}", e)))
         });
         registry
             .register_method::<fn(&_) -> _>("to_rfc3339", |this| this.inner.to_rfc3339().intern());
+        registry
+            .register_method::<fn(&_) -> _>("to_relative", |this| this.inner.humanize().intern());
 
         registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &DurationValue| {
             Self::from(lhs.inner + rhs.0)
+        });
+        registry.register_bin_op(BinOp::Sub, |_, lhs, rhs: &DurationValue| {
+            Self::from(lhs.inner - rhs.0)
         });
     }
 }

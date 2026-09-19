@@ -5,7 +5,7 @@ use inq_lang::{
     eval::{
         registry::BinOp,
         value::{
-            CallContext, Value,
+            Value,
             native::{Float, Int},
         },
     },
@@ -61,59 +61,41 @@ impl Value for DurationValue {
             this.0.as_secs_f64() / 60. / 60. / 24.
         });
 
-        registry.register_static_method::<fn(_, _) -> _>(
-            "parse",
-            |ctx: CallContext, seconds: IStr| {
-                humantime::parse_duration(&seconds)
-                    .map(Self)
-                    .map_err(|e| ctx.error(format!("Unable to parse duration: {:?}", e)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_millis",
-            |ctx: CallContext, millis: Int| {
-                if millis < 0 {
-                    return Err(ctx.error("mills must be positive"));
-                }
-                Ok(Self(Duration::from_millis(millis as _)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_secs",
-            |ctx: CallContext, seconds: Float| {
-                if seconds < 0. {
-                    return Err(ctx.error("seconds must be positive"));
-                }
-                Ok(Self(Duration::from_secs_f64(seconds)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_mins",
-            |ctx: CallContext, seconds: Float| {
-                if seconds < 0. {
-                    return Err(ctx.error("seconds must be positive"));
-                }
-                Ok(Self(Duration::from_secs_f64(seconds * 60.)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_hours",
-            |ctx: CallContext, hours: Float| {
-                if hours < 0. {
-                    return Err(ctx.error("hours must be positive"));
-                }
-                Ok(Self(Duration::from_secs_f64(hours * 60. * 60.)))
-            },
-        );
-        registry.register_static_method::<fn(_, _) -> _>(
-            "from_days",
-            |ctx: CallContext, days: Float| {
-                if days < 0. {
-                    return Err(ctx.error("days must be positive"));
-                }
-                Ok(Self(Duration::from_secs_f64(days * 24. * 60. * 60.)))
-            },
-        );
+        registry.register_static_method("parse", |ctx, seconds: IStr| {
+            humantime::parse_duration(&seconds)
+                .map(Self)
+                .map_err(|e| ctx.error(format!("Unable to parse duration: {:?}", e)))
+        });
+        registry.register_static_method("from_millis", |ctx, millis: Int| {
+            if millis < 0 {
+                return Err(ctx.error("mills must be positive"));
+            }
+            Ok(Self(Duration::from_millis(millis as _)))
+        });
+        registry.register_static_method("from_secs", |ctx, seconds: Float| {
+            if seconds < 0. {
+                return Err(ctx.error("seconds must be positive"));
+            }
+            Ok(Self(Duration::from_secs_f64(seconds)))
+        });
+        registry.register_static_method("from_mins", |ctx, seconds: Float| {
+            if seconds < 0. {
+                return Err(ctx.error("seconds must be positive"));
+            }
+            Ok(Self(Duration::from_secs_f64(seconds * 60.)))
+        });
+        registry.register_static_method("from_hours", |ctx, hours: Float| {
+            if hours < 0. {
+                return Err(ctx.error("hours must be positive"));
+            }
+            Ok(Self(Duration::from_secs_f64(hours * 60. * 60.)))
+        });
+        registry.register_static_method("from_days", |ctx, days: Float| {
+            if days < 0. {
+                return Err(ctx.error("days must be positive"));
+            }
+            Ok(Self(Duration::from_secs_f64(days * 24. * 60. * 60.)))
+        });
     }
 }
 
