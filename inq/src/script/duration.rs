@@ -42,9 +42,7 @@ impl Value for DurationValue {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_tuple("Duration")
-            .field(&humantime::format_duration(self.0))
-            .finish()
+        write!(fmt, "{}", humantime::format_duration(self.0))
     }
 
     fn register(registry: &mut inq_lang::eval::registry::Registry<Self>)

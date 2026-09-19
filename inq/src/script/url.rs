@@ -1,13 +1,15 @@
 use std::rc::Rc;
 
 use inq_lang::{
-    IStr,
+    IStr, StringExt,
     eval::{
         registry::Registry,
-        value::{Value, ValueRef, native::Int},
+        value::{Value, native::Int},
     },
 };
 use reqwest::Url;
+
+use crate::debug_fmt;
 
 #[derive(Debug, Clone)]
 pub struct UrlValue(pub(crate) Url);
@@ -33,22 +35,18 @@ impl Value for UrlValue {
         write!(out, "{}", self.0).unwrap();
     }
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        macro_rules! debug {
-            ($e: expr) => {
-                ValueRef::from($e).debug()
-            };
+        debug_fmt! {
+            into fmt as "Url",
+            host      => self.0.host_str().map(IStr::from),
+            domain    => self.0.domain().map(IStr::from),
+            port      => self.0.port().map(Int::from),
+            path      => self.0.path().intern(),
+            query     => self.0.query().map(IStr::from),
+            fragment  => self.0.fragment().map(IStr::from),
+            authority => self.0.authority().intern(),
+            username  => self.0.username().intern(),
+            password  => self.0.password().map(IStr::from),
         }
-        fmt.debug_struct("Url")
-            .field("host", &debug!(self.0.host_str().map(IStr::from)))
-            .field("domain", &debug!(self.0.domain().map(IStr::from)))
-            .field("port", &debug!(self.0.port().map(Int::from)))
-            .field("path", &debug!(IStr::from(self.0.path())))
-            .field("query", &debug!(self.0.query().map(IStr::from)))
-            .field("fragment", &debug!(self.0.fragment().map(IStr::from)))
-            .field("authority", &debug!(IStr::from(self.0.authority())))
-            .field("username", &debug!(IStr::from(self.0.username())))
-            .field("password", &debug!(self.0.password().map(IStr::from)))
-            .finish()
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -57,12 +55,13 @@ impl Value for UrlValue {
     {
         registry.register_field_get("host", |_, this| this.0.host_str().map(IStr::from));
         registry.register_field_get("domain", |_, this| this.0.domain().map(IStr::from));
+        registry.register_field_get("scheme", |_, this| this.0.scheme().intern());
         registry.register_field_get("port", |_, this| this.0.port().map(Int::from));
-        registry.register_field_get::<IStr>("path", |_, this| this.0.path().into());
+        registry.register_field_get("path", |_, this| this.0.path().intern());
         registry.register_field_get("query", |_, this| this.0.query().map(IStr::from));
         registry.register_field_get("fragment", |_, this| this.0.fragment().map(IStr::from));
-        registry.register_field_get::<IStr>("authority", |_, this| this.0.authority().into());
-        registry.register_field_get::<IStr>("username", |_, this| this.0.username().into());
+        registry.register_field_get("authority", |_, this| this.0.authority().intern());
+        registry.register_field_get("username", |_, this| this.0.username().intern());
         registry.register_field_get("password", |_, this| this.0.password().map(IStr::from));
     }
 }

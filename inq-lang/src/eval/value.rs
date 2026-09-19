@@ -55,6 +55,15 @@ impl Primitive {
             Primitive::Type(r) => r,
         }
     }
+
+    fn is<T: Value>() -> bool {
+        TypeId::of::<T>() == TypeId::of::<Int>()
+            || TypeId::of::<T>() == TypeId::of::<Float>()
+            || TypeId::of::<T>() == TypeId::of::<bool>()
+            || TypeId::of::<T>() == TypeId::of::<Null>()
+            || TypeId::of::<T>() == TypeId::of::<IStr>()
+            || TypeId::of::<T>() == TypeId::of::<TypeValue>()
+    }
 }
 
 #[derive(Clone)]
@@ -129,6 +138,16 @@ impl ValueRef {
 
     pub fn downcast<T: Value + Clone>(&self) -> Option<T> {
         self.value().downcast_ref().cloned()
+    }
+
+    pub fn downcast_rc<T: Value>(&self) -> Option<Rc<T>> {
+        if Primitive::is::<T>() {
+            panic!("Cannot call downcast_rc on Primitive type");
+        }
+        match self.inner {
+            ValueRefInner::Primitive(_) => None,
+            ValueRefInner::Dyn(ref value) => Rc::downcast::<T>(value.clone()).ok(),
+        }
     }
 
     pub fn downcast_ref<T: Value + Clone>(&self) -> Option<&T> {

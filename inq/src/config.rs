@@ -1,9 +1,13 @@
-use std::{collections::HashMap, rc::Rc, time::Duration};
+use std::{collections::HashMap, rc::Rc, str::FromStr, time::Duration};
 
 use fuzzt::processors::{LowerAlphaNumStringProcessor, StringProcessor};
-use inq_lang::{Attribute, Ident, Item, Parser, Route, eval::Engine};
+use inq_lang::{
+    Attribute, IStr, Ident, Item, Parser, Route, Span,
+    eval::{Engine, EvalError, value::ValueRef},
+};
+use reqwest::Url;
 
-use crate::script;
+use crate::script::{self, url::UrlValue};
 
 #[derive(Debug, Clone)]
 #[expect(unused)]
@@ -30,12 +34,12 @@ impl Config {
             engine: script::base_engine(),
         };
 
-        this.read_items(content)?;
+        this.parse_items(content)?;
 
         Ok(this)
     }
 
-    fn read_items(&mut self, content: &str) -> miette::Result<()> {
+    fn parse_items(&mut self, content: &str) -> miette::Result<()> {
         let mut parser = Parser::new(content)?;
 
         while let Some(item) = parser.take_item()? {
@@ -44,7 +48,21 @@ impl Config {
                     if v.attributes.contains(&Attribute::Persist) {
                         self.persisted_vars.push(v.name.clone());
                     }
-                    self.engine.global().add_variable(v);
+                    if v.name == "BASE_URL" {
+                        self.engine.global().add_mapped_variable(
+                            v,
+                            |span: Span, value: ValueRef| {
+                                let s = value.expect_downcast::<IStr>(span)?;
+                                let url = Url::from_str(&s).map_err(|e| {
+                                    EvalError::custom(span, format!("Unable to parse url: {}", e))
+                                })?;
+
+                                Ok(ValueRef::from(UrlValue(url)))
+                            },
+                        );
+                    } else {
+                        self.engine.global().add_variable(v);
+                    }
                 }
                 Item::Route(r) => self.routes.push(r),
             }

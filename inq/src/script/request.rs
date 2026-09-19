@@ -15,14 +15,19 @@ use reqwest::{
 
 use crate::{
     cli::CliClientConfig,
-    script::{client::ClientConfig, header::HeaderMapValue, json::Json, url::UrlValue},
+    debug_fmt,
+    script::{
+        bytes_value::BytesValue, client::ClientConfig, header::HeaderMapValue, json::Json,
+        url::UrlValue,
+    },
 };
 
 #[derive(Debug, Clone)]
 pub(crate) enum RequestBody {
     None,
-    Json(Json),
+    Json(Rc<Json>),
     Text(IStr),
+    Bytes(Rc<BytesValue>),
 }
 
 #[derive(Debug, Clone)]
@@ -30,7 +35,7 @@ pub(crate) struct RequestValue {
     pub method: Method,
     pub url: Rc<UrlValue>,
     pub headers: Rc<HeaderMapValue>,
-    pub body: Rc<RefCell<RequestBody>>,
+    pub body: RefCell<RequestBody>,
     pub client: Rc<ClientConfig>,
 }
 
@@ -43,7 +48,7 @@ impl RequestValue {
                 HeaderName::from_static("user-agent"),
                 HeaderValue::from_static(concat!("inq/", env!("CARGO_PKG_VERSION"))),
             )])))),
-            body: Rc::new(RefCell::new(RequestBody::None)),
+            body: RefCell::new(RequestBody::None),
             client: Rc::new(client.into()),
         }
     }
@@ -64,6 +69,9 @@ impl From<&RequestValue> for Request {
             }
             RequestBody::Text(istr) => {
                 *request.body_mut() = Some(Body::from(istr.as_str().to_string()));
+            }
+            RequestBody::Bytes(bytes) => {
+                *request.body_mut() = Some(Body::from(Vec::from(bytes.deref().clone())));
             }
         }
         request
@@ -87,7 +95,19 @@ impl Value for RequestValue {
         write!(out, "{} {}", self.method, self.url.0).unwrap();
     }
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Self as std::fmt::Debug>::fmt(self, f)
+        let body = match &*self.body.borrow() {
+            RequestBody::None => ValueRef::null(),
+            RequestBody::Json(json) => ValueRef::from_ref(json.clone()),
+            RequestBody::Text(istr) => ValueRef::from(istr.clone()),
+            RequestBody::Bytes(bytes) => ValueRef::from_ref(bytes.clone()),
+        };
+        debug_fmt! {
+            into f as "Url",
+            url     => ValueRef::from_ref(self.url.clone()),
+            headers => ValueRef::from_ref(self.headers.clone()),
+            client  => ValueRef::from_ref(self.client.clone()),
+            body    => body,
+        }
     }
 
     fn snapshot(&self) -> Rc<dyn Value> {
@@ -110,14 +130,15 @@ impl Value for RequestValue {
             "body",
             |_, this| match &*this.body.borrow() {
                 RequestBody::None => ValueRef::null(),
-                RequestBody::Json(json) => json.clone().into(),
+                RequestBody::Json(json) => ValueRef::from_ref(json.clone()),
                 RequestBody::Text(text) => text.clone().into(),
+                RequestBody::Bytes(bytes) => ValueRef::from_ref(bytes.clone()),
             },
             |ctx, this, rhs| {
                 if rhs.is::<Null>() {
                     *this.body.borrow_mut() = RequestBody::None;
                     this.headers.0.borrow_mut().remove(header::CONTENT_TYPE);
-                } else if let Some(json) = rhs.downcast::<Json>() {
+                } else if let Some(json) = rhs.downcast_rc::<Json>() {
                     *this.body.borrow_mut() = RequestBody::Json(json);
                     this.headers.0.borrow_mut().insert(
                         header::CONTENT_TYPE,
@@ -128,6 +149,12 @@ impl Value for RequestValue {
                     this.headers.0.borrow_mut().insert(
                         header::CONTENT_TYPE,
                         HeaderValue::from_str("text/plain; charset=utf-8").unwrap(),
+                    );
+                } else if let Some(bytes) = rhs.downcast_rc::<BytesValue>() {
+                    *this.body.borrow_mut() = RequestBody::Bytes(bytes);
+                    this.headers.0.borrow_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_str("application/octet-stream").unwrap(),
                     );
                 } else {
                     return Err(ctx.error("Invalid value for body.  Must be `Json` or `String`"));

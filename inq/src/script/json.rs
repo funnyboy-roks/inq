@@ -36,7 +36,7 @@ impl Value for Json {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Self as std::fmt::Debug>::fmt(self, fmt)
+        write!(fmt, "Json({})", self.0.borrow())
     }
 
     fn truthy(&self) -> bool {

@@ -6,7 +6,7 @@ use inq_lang::{
     eval::value::{CallContext, Value},
 };
 
-use crate::script::datetime::DateTimeValue;
+use crate::{debug_fmt, script::datetime::DateTimeValue};
 
 #[derive(Debug, Clone)]
 pub struct CookieValue {
@@ -34,7 +34,12 @@ impl Value for CookieValue {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Cookie as std::fmt::Debug>::fmt(&self.inner, fmt)
+        debug_fmt! {
+            into fmt as "Cookie",
+            name       => self.inner.name().intern(),
+            value      => self.inner.value().intern(),
+            expires_at => self.inner.expires_datetime().map(DateTimeValue::from),
+        }
     }
 
     fn register(registry: &mut inq_lang::eval::registry::Registry<Self>)

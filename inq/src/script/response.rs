@@ -10,13 +10,16 @@ use inq_lang::{
 use miette::{Context, IntoDiagnostic};
 use reqwest::{StatusCode, Version, blocking::Response, header};
 
-use crate::script::{
-    Encoding, ScriptBody, bytes_value::BytesValue, header::HeaderMapValue, url::UrlValue,
+use crate::{
+    debug_fmt,
+    script::{
+        Encoding, ScriptBody, bytes_value::BytesValue, header::HeaderMapValue, url::UrlValue,
+    },
 };
 
 #[derive(Debug, Clone)]
 pub struct ResponseValue {
-    pub status: u16,
+    pub status: Int,
     pub version: Version,
     pub url: UrlValue,
     pub remote_addr: Option<SocketAddr>,
@@ -27,7 +30,7 @@ pub struct ResponseValue {
 
 impl ResponseValue {
     pub fn status(&self) -> StatusCode {
-        StatusCode::from_u16(self.status).expect("set from Response")
+        StatusCode::from_u16(self.status as _).expect("set from Response")
     }
 }
 
@@ -35,7 +38,7 @@ impl TryFrom<Response> for ResponseValue {
     type Error = miette::Error;
     fn try_from(value: Response) -> miette::Result<Self> {
         Ok(Self {
-            status: value.status().as_u16(),
+            status: value.status().as_u16().into(),
             version: value.version(),
             url: UrlValue(value.url().clone()),
             remote_addr: value.remote_addr(),
@@ -107,14 +110,22 @@ impl Value for ResponseValue {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        <Self as std::fmt::Debug>::fmt(self, fmt)
+        debug_fmt! {
+            into fmt as "Response",
+            status         => self.status,
+            version        => format!("{:?}", self.version).intern(),
+            url            => self.url.clone(),
+            remote_addr    => self.remote_addr.map(|s| s.to_string().intern()),
+            headers        => self.headers.clone(),
+            content_length => self.content_length.map(|n| n as Int).unwrap_or_default(),
+        }
     }
 
     fn register(registry: &mut Registry<Self>)
     where
         Self: Sized,
     {
-        registry.register_field_get("status", |_, this| Int::from(this.status));
+        registry.register_field_get("status", |_, this| this.status);
         registry.register_field_get("version", |_, this| format!("{:?}", this.version).intern());
         registry.register_field_get("url", |_, this| this.url.clone());
         registry.register_field_get("remote_addr", |_, this| {

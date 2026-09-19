@@ -127,7 +127,49 @@ impl Value for ClientConfig {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct("Client").finish_non_exhaustive()
+        fmt.debug_struct("Client")
+            .field(
+                "redirects",
+                &ValueRef::from(self.borrow().redirect.map(|n| n as Int)).debug(),
+            )
+            .field(
+                "timeout",
+                &ValueRef::from(self.borrow().timeout.map(DurationValue)).debug(),
+            )
+            .field(
+                "connect_timeout",
+                &ValueRef::from(self.borrow().connect_timeout.map(DurationValue)).debug(),
+            )
+            .field(
+                "interface",
+                #[cfg(any(
+                    target_os = "android",
+                    target_os = "fuchsia",
+                    target_os = "illumos",
+                    target_os = "ios",
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "solaris",
+                    target_os = "tvos",
+                    target_os = "visionos",
+                    target_os = "watchos",
+                ))]
+                &ValueRef::from(self.borrow().interface.as_ref().map(IStr::from)).debug(),
+                #[cfg(not(any(
+                    target_os = "android",
+                    target_os = "fuchsia",
+                    target_os = "illumos",
+                    target_os = "ios",
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "solaris",
+                    target_os = "tvos",
+                    target_os = "visionos",
+                    target_os = "watchos",
+                )))]
+                &std::fmt::from_fn(|fmt| write!(fmt, "<disabled>")),
+            )
+            .finish()
     }
 
     fn register(registry: &mut Registry<Self>)

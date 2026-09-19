@@ -1,4 +1,4 @@
-use std::{fmt::Display, io::Write, time::Duration};
+use std::{fmt::Display, io::Write, ops::Deref, time::Duration};
 
 use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
@@ -102,6 +102,12 @@ pub fn print_request(req: &Request, body: &RequestBody) -> miette::Result<()> {
             eprintln!("{}:", "Request Body (Text)".cyan());
 
             eprintln!("{}", text);
+        }
+        RequestBody::Bytes(bytes) => {
+            eprintln!("{}:", "Request Body (Bytes)".cyan());
+
+            let hex = hex::encode(Vec::from(bytes.deref().clone()));
+            eprintln!("{}", hex);
         } // RequestBody::File(path) => {
           //     eprintln!(
           //         "{}: {}",
@@ -226,4 +232,15 @@ pub fn print_variable(v: PersistedVariable, indent: bool) {
     } else {
         eprintln!("{} Never", "Expires:".blue());
     }
+}
+
+#[macro_export]
+macro_rules! debug_fmt {
+    (into $fmt:ident as $struct_name:literal, $($name:ident => $v:expr),*$(,)?) => {
+        $fmt.debug_struct($struct_name)
+            $(
+            .field(stringify!($name), &inq_lang::eval::value::ValueRef::from($v).debug())
+            )*
+            .finish()
+    };
 }

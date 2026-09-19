@@ -11,7 +11,7 @@ use crate::{
     cli::RouteCommand,
     config::Config,
     print::{print_request, print_response},
-    script::{request::RequestValue, response::ResponseValue},
+    script::{request::RequestValue, response::ResponseValue, url::UrlValue},
     state::State,
     util::ToReqwest,
 };
@@ -60,17 +60,14 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
         })?
     } else if let Some(base_url_lazy) = config.engine.global().get_lazy_variable("BASE_URL")? {
         let span = base_url_lazy.value_span();
-        if let Some(base_url) = base_url_lazy.get()?.downcast::<IStr>() {
-            let string = format!("{}{}", base_url, url);
-            Url::from_str(&string).map_err(|e| {
-                miette::miette! {
-                    labels = vec![route.endpoint.span.with_label("here")],
-                    "Unable to parse url: {}", e
-                }
-            })?
-        } else {
-            return Err(EvalError::custom(span, "BASE_URL must be a string").into());
-        }
+        let mut full_url = base_url_lazy.get()?.expect_downcast::<UrlValue>(span)?.0;
+        let (path, query) = url
+            .split_once('?')
+            .map(|(p, q)| (p, Some(q)))
+            .unwrap_or((&url, None));
+        full_url.set_path(path);
+        full_url.set_query(query);
+        full_url
     } else {
         miette::bail! {
             labels = vec![route.endpoint.span.with_label("here")],

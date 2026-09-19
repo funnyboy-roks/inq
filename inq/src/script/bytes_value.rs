@@ -25,6 +25,12 @@ impl From<Vec<u8>> for BytesValue {
     }
 }
 
+impl From<BytesValue> for Vec<u8> {
+    fn from(value: BytesValue) -> Self {
+        value.inner.into_inner()
+    }
+}
+
 impl Value for BytesValue {
     fn type_name() -> std::borrow::Cow<'static, str>
     where

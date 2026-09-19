@@ -12,7 +12,7 @@ use crate::{
     IStr, Ident, Variable,
     eval::{
         Engine, EvalError, EvalResult,
-        lazy::LazyValueRef,
+        lazy::{LazyValueRef, VariableMapper},
         registry::{self, BinOp, UnaryOp, VarArgs},
         value::{
             CallContext, Value, ValueRef,
@@ -156,6 +156,14 @@ impl Scope {
 
     pub fn add_variable(&self, var: Variable) {
         self.set_variable_by_ref(var.name.inner, LazyValueRef::lazy(self, var.value), true);
+    }
+
+    pub fn add_mapped_variable(&self, var: Variable, mapper: VariableMapper) {
+        self.set_variable_by_ref(
+            var.name.inner,
+            LazyValueRef::lazy_mapped(self, var.value, mapper),
+            true,
+        );
     }
 
     pub fn set_special(&self, special: Special) {

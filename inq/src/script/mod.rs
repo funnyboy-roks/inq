@@ -150,7 +150,7 @@ pub fn base_engine() -> Rc<Engine> {
     global.set_variable(
         "debug",
         FunctionValue::new(|_ctx, s: ValueRef| {
-            println!("{:#?}", s.debug());
+            eprintln!("{:#?}", s.debug());
         }),
         true,
     );

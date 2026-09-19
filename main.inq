@@ -10,7 +10,8 @@ let password = read_text_file("./password");
 
 route foo(arg = null) => GET "/echo?foo=$arg"
     before {
-        print(request.client.redirects);
+        request.body = Bytes.from_hex("123981203985");
+        debug(request);
     }
 
 route login() => POST "/login"
