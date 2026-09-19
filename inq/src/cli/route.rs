@@ -5,7 +5,7 @@ use inq_lang::{
     eval::{EvalError, Scope, Special, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
-use reqwest::{Url, blocking::Request};
+use reqwest::Url;
 
 use crate::{
     cli::RouteCommand,
@@ -112,6 +112,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
     let url = parse_url(&config, route, &scope)?;
 
     let request = Rc::new(RefCell::new(RequestValue::new(
+        route_cmd.client,
         route.method.to_reqwest(),
         url,
     )));

@@ -7,6 +7,7 @@ pub fn make_cli(dir: &Path, route_name: &str) -> Cli {
         config: dir.join("main.inq"),
         subcmd: SubCmd::Route(RouteCommand {
             raw: false,
+            client: Default::default(),
             route: Some(route_name.into()),
             args: Vec::new(),
         }),

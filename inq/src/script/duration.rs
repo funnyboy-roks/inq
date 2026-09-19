@@ -14,6 +14,12 @@ use inq_lang::{
 #[derive(Debug, Clone, Copy)]
 pub struct DurationValue(pub Duration);
 
+impl From<humantime::Duration> for DurationValue {
+    fn from(value: humantime::Duration) -> Self {
+        Self(value.into())
+    }
+}
+
 impl Value for DurationValue {
     fn type_name() -> std::borrow::Cow<'static, str>
     where

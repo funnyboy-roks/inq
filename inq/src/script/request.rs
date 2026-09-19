@@ -13,7 +13,10 @@ use reqwest::{
     header::{self, HeaderMap, HeaderName, HeaderValue},
 };
 
-use crate::script::{client::ClientConfig, header::HeaderMapValue, json::Json, url::UrlValue};
+use crate::{
+    cli::CliClientConfig,
+    script::{client::ClientConfig, header::HeaderMapValue, json::Json, url::UrlValue},
+};
 
 #[derive(Debug, Clone)]
 pub(crate) enum RequestBody {
@@ -31,7 +34,7 @@ pub(crate) struct RequestValue {
     pub client: Rc<RefCell<ClientConfig>>,
 }
 impl RequestValue {
-    pub(crate) fn new(method: Method, url: Url) -> Self {
+    pub(crate) fn new(client: CliClientConfig, method: Method, url: Url) -> Self {
         Self {
             method,
             url: Rc::new(RefCell::new(UrlValue(url))),
@@ -40,7 +43,7 @@ impl RequestValue {
                 HeaderValue::from_static(concat!("inq/", env!("CARGO_PKG_VERSION"))),
             )])))),
             body: RequestBody::None,
-            client: Default::default(),
+            client: Rc::new(RefCell::new(client.into())),
         }
     }
 

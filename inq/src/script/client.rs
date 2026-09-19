@@ -12,23 +12,65 @@ use inq_lang::{
 };
 use reqwest::{blocking::Client, redirect::Policy};
 
-use crate::script::duration::DurationValue;
+#[cfg(not(any(
+    target_os = "android",
+    target_os = "fuchsia",
+    target_os = "illumos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "macos",
+    target_os = "solaris",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "watchos",
+)))]
+use crate::warn;
+use crate::{cli::CliClientConfig, script::duration::DurationValue};
 
 #[derive(Debug, Clone)]
 pub struct ClientConfig {
     redirect: Option<usize>,
     timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    ))]
     interface: Option<IStr>,
 }
 
-impl Default for ClientConfig {
-    fn default() -> Self {
+impl From<CliClientConfig> for ClientConfig {
+    fn from(value: CliClientConfig) -> Self {
         Self {
-            redirect: None,
-            timeout: Some(Duration::from_secs(3)),
-            connect_timeout: None,
-            interface: None,
+            redirect: value.redirects,
+            timeout: Some(
+                value
+                    .timeout
+                    .map(Into::into)
+                    .unwrap_or(Duration::from_secs(30)),
+            ),
+            connect_timeout: value.connect_timeout.map(Into::into),
+            #[cfg(any(
+                target_os = "android",
+                target_os = "fuchsia",
+                target_os = "illumos",
+                target_os = "ios",
+                target_os = "linux",
+                target_os = "macos",
+                target_os = "solaris",
+                target_os = "tvos",
+                target_os = "visionos",
+                target_os = "watchos",
+            ))]
+            interface: value.interface.map(Into::into),
         }
     }
 }
@@ -146,7 +188,34 @@ impl Value for ClientConfig {
             "interface",
             |_, this| this.timeout.map(DurationValue),
             |ctx, this, value: ValueRef| {
-                this.interface = Some(value.expect_downcast::<IStr>(ctx.span())?);
+                #[cfg(any(
+                    target_os = "android",
+                    target_os = "fuchsia",
+                    target_os = "illumos",
+                    target_os = "ios",
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "solaris",
+                    target_os = "tvos",
+                    target_os = "visionos",
+                    target_os = "watchos",
+                ))]
+                {
+                    this.interface = Some(value.expect_downcast::<IStr>(ctx.span())?);
+                }
+                #[cfg(not(any(
+                    target_os = "android",
+                    target_os = "fuchsia",
+                    target_os = "illumos",
+                    target_os = "ios",
+                    target_os = "linux",
+                    target_os = "macos",
+                    target_os = "solaris",
+                    target_os = "tvos",
+                    target_os = "visionos",
+                    target_os = "watchos",
+                )))]
+                warn!("Interface is not supported on your operating system!");
                 Ok(())
             },
         );

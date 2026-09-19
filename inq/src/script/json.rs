@@ -109,10 +109,9 @@ impl Json {
 #[cfg(test)]
 mod test {
     use inq_lang::{
-        IStr, Parser,
+        IStr,
         eval::value::native::{Float, Int, Null, Object},
     };
-    use miette::NamedSource;
 
     use super::Json;
 

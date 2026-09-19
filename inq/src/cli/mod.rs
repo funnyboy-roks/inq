@@ -1,17 +1,50 @@
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use humantime::Duration;
 
 pub mod eval;
 pub mod route;
 pub mod variable;
 
+#[derive(Debug, Args, Default)]
+pub struct CliClientConfig {
+    /// The number of redirects allowed by the client.  If not specified, then no limit is set
+    #[clap(long)]
+    pub redirects: Option<usize>,
+    /// The maximum time to wait for a response after sending a request.  Default: 30s
+    #[clap(long)]
+    pub timeout: Option<humantime::Duration>,
+    /// The maximum time to wait to establish a connection with the remote server.  Default: unlimited
+    #[clap(long)]
+    pub connect_timeout: Option<humantime::Duration>,
+    /// The interface upon which to connect to the the remote server.
+    ///
+    /// NOTE: This flag is not supported on Windows
+    #[cfg(any(
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "solaris",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
+    ))]
+    #[clap(long)]
+    pub interface: Option<String>,
+}
+
 #[derive(Debug, Parser)]
 pub struct RouteCommand {
     /// Print the raw body of the response
     #[clap(short, long)]
     pub raw: bool,
+    #[clap(flatten)]
+    pub client: CliClientConfig,
+    /// The route to run.  If not passed, all routes will be listed
     pub route: Option<String>,
     /// Arguments to pass to the route
     ///
