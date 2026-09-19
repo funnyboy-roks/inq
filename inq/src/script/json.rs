@@ -116,34 +116,7 @@ mod test {
 
     use super::Json;
 
-    use crate::script::base_engine;
-
-    macro_rules! eval {
-        ($engine: expr, $($tt: tt)*) => {{
-            let content = stringify!($($tt)*);
-            let mut parser = Parser::new(&content)
-                .map_err(|e| {
-                    miette::Report::from(e)
-                        .with_source_code(NamedSource::new("literal", content.to_string()))
-                })
-                .unwrap();
-            let expr = parser
-                .take_expr()
-                .map_err(|e| {
-                    miette::Report::from(e)
-                        .with_source_code(NamedSource::new("literal", content.to_string()))
-                })
-                .unwrap()
-                .unwrap();
-
-            $engine.global().eval(expr)
-                .map_err(|e| {
-                    miette::Report::from(e)
-                        .with_source_code(NamedSource::new("literal", content.to_string()))
-                })
-                .unwrap()
-        }};
-    }
+    use crate::{eval, script::base_engine};
 
     #[test]
     fn roundtrip() {

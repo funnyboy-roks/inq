@@ -124,9 +124,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
     }
 
     let req_body = request.borrow().body.clone();
-    let request: Request = request.borrow().clone().into();
-
-    let client = config.client()?;
+    let (request, client) = request.borrow().clone().into_reqwest();
 
     print_request(&request, &req_body)?;
 

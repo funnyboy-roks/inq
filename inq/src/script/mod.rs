@@ -11,12 +11,15 @@ use miette::{IntoDiagnostic, bail};
 use crate::{
     decode::{decode_brotli, decode_deflate, decode_gzip, decode_zstd},
     script::{
-        bytes_value::BytesValue, header::HeaderMapValue, json::Json, request::RequestValue,
-        response::ResponseValue, url::UrlValue,
+        bytes_value::BytesValue, client::ClientConfig, duration::DurationValue,
+        header::HeaderMapValue, json::Json, request::RequestValue, response::ResponseValue,
+        url::UrlValue,
     },
 };
 
 pub(crate) mod bytes_value;
+pub(crate) mod client;
+pub(crate) mod duration;
 pub(crate) mod header;
 pub(crate) mod json;
 pub(crate) mod request;
@@ -110,9 +113,12 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<RequestValue>();
     engine.register_type::<ResponseValue>();
     engine.register_type::<UrlValue>();
-    engine.register_type::<Json>();
     engine.register_type::<HeaderMapValue>();
+    engine.register_type::<ClientConfig>();
+
+    engine.register_type::<Json>();
     engine.register_type::<BytesValue>();
+    engine.register_type::<DurationValue>();
 
     // plugins
     // RandomPackage::new().register_into_engine(&mut engine);

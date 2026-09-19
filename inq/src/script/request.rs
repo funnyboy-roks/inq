@@ -9,11 +9,11 @@ use inq_lang::{
 };
 use reqwest::{
     Method, Url,
-    blocking::{Body, Request},
+    blocking::{Body, Client, Request},
     header::{self, HeaderMap, HeaderName, HeaderValue},
 };
 
-use crate::script::{header::HeaderMapValue, json::Json, url::UrlValue};
+use crate::script::{client::ClientConfig, header::HeaderMapValue, json::Json, url::UrlValue};
 
 #[derive(Debug, Clone)]
 pub(crate) enum RequestBody {
@@ -24,10 +24,11 @@ pub(crate) enum RequestBody {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RequestValue {
-    pub(crate) method: Method,
-    pub(crate) url: Rc<RefCell<UrlValue>>,
-    pub(crate) headers: Rc<RefCell<HeaderMapValue>>,
-    pub(crate) body: RequestBody,
+    pub method: Method,
+    pub url: Rc<RefCell<UrlValue>>,
+    pub headers: Rc<RefCell<HeaderMapValue>>,
+    pub body: RequestBody,
+    pub client: Rc<RefCell<ClientConfig>>,
 }
 impl RequestValue {
     pub(crate) fn new(method: Method, url: Url) -> Self {
@@ -39,15 +40,20 @@ impl RequestValue {
                 HeaderValue::from_static(concat!("inq/", env!("CARGO_PKG_VERSION"))),
             )])))),
             body: RequestBody::None,
+            client: Default::default(),
         }
+    }
+
+    pub(crate) fn into_reqwest(self) -> (Request, Client) {
+        ((&self).into(), self.client.borrow().clone().into())
     }
 }
 
-impl From<RequestValue> for Request {
-    fn from(value: RequestValue) -> Self {
-        let mut request = Request::new(value.method, value.url.borrow().0.clone());
+impl From<&RequestValue> for Request {
+    fn from(value: &RequestValue) -> Self {
+        let mut request = Request::new(value.method.clone(), value.url.borrow().0.clone());
         *request.headers_mut() = value.headers.borrow().0.clone();
-        match value.body {
+        match &value.body {
             RequestBody::None => {}
             RequestBody::Json(json) => {
                 *request.body_mut() = Some(Body::from(json.0.to_string()));

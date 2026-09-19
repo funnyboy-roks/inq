@@ -8,7 +8,10 @@ let user = "john";
 #[persist]
 let password = read_text_file("./password");
 
-route foo(arg = null) => GET "/echo?foo=$arg";
+route foo(arg = null) => GET "/echo?foo=$arg"
+    before {
+        print(request.client.redirects);
+    }
 
 route login() => POST "/login"
     before {
