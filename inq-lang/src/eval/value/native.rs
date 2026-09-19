@@ -72,8 +72,8 @@ impl Value for Int {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as Debug>::fmt(self, fmt)
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(*self))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
     fn truthy(&self) -> bool {
         *self != 0
@@ -106,9 +106,9 @@ impl Value for Int {
         registry.register_cmp(|l, r| l.partial_cmp(r));
         registry.register_cmp(|l, r| (*l as Float).partial_cmp(r));
 
-        registry.register_method::<fn(_, &mut _, _) -> _>(
+        registry.register_method::<fn(_, &_, _) -> _>(
             "to_string",
-            |ctx, &mut this, radix: Option<i64>| {
+            |ctx, &this, radix: Option<i64>| {
                 let radix = radix.unwrap_or(10.into());
                 if !(2..=36).contains(&radix) {
                     return Err(ctx.error(format!("radix must be in range [2, 36], got {}", radix)));
@@ -120,7 +120,7 @@ impl Value for Int {
             Int::from_str(&s).map_err(|e| ctx.error(format!("Cannot parse {:?} as Int: {}", s, e)))
         });
 
-        registry.register_method::<fn(&mut _) -> _>("to_float", |&mut this| this as Float);
+        registry.register_method::<fn(&_) -> _>("to_float", |&this| this as Float);
     }
 }
 
@@ -139,8 +139,8 @@ impl Value for Float {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as Debug>::fmt(self, fmt)
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(*self))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
     fn truthy(&self) -> bool {
         *self != 0.0
@@ -178,7 +178,7 @@ impl Value for Float {
         macro_rules! proxy {
             ($($fun: ident)*) => {
                 $(
-                registry.register_method::<fn(&mut _) -> _>(stringify!($fun), |&mut this| this.$fun());
+                registry.register_method::<fn(&_) -> _>(stringify!($fun), |&this| this.$fun());
                 )*
             };
         }
@@ -205,8 +205,8 @@ impl Value for bool {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as Debug>::fmt(self, fmt)
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(*self))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
     fn truthy(&self) -> bool {
         *self
@@ -232,8 +232,8 @@ impl Value for Null {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(fmt, "null")
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
     fn truthy(&self) -> bool {
         false
@@ -260,8 +260,8 @@ impl Value for IStr {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as Debug>::fmt(self, fmt)
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
     fn truthy(&self) -> bool {
         !self.is_empty()
@@ -271,20 +271,20 @@ impl Value for IStr {
     where
         Self: Sized,
     {
-        registry.register_method::<fn(&mut _) -> _>("len", |s| s.len() as i64);
-        registry.register_method::<fn(&mut _, IStr) -> _>("split", |this, delim| {
+        registry.register_method::<fn(&_) -> _>("len", |s| s.len() as i64);
+        registry.register_method::<fn(&_, IStr) -> _>("split", |this, delim| {
             this.split(delim.as_str())
                 .map(IStr::from)
                 .map(ValueRef::from)
-                .collect::<Vec<_>>()
+                .collect::<Array>()
         });
-        registry.register_method::<fn(&mut _, _) -> _>(
+        registry.register_method::<fn(&_, _) -> _>(
             "replace",
             |this, (needle, replacement): (IStr, IStr)| -> IStr {
                 this.replace(&*needle, &replacement).into()
             },
         );
-        registry.register_method::<fn(_, &mut _, _) -> _>(
+        registry.register_method::<fn(_, &_, _) -> _>(
             "substring",
             |ctx, this, (start, end): (i64, i64)| {
                 let nstart = if start < 0 {
@@ -316,7 +316,7 @@ impl Value for IStr {
                 Ok(IStr::from(&this[start as usize..end as usize]))
             },
         );
-        registry.register_method::<fn(&mut _) -> _>("chars", |this| {
+        registry.register_method::<fn(&_) -> _>("chars", |this| {
             this.chars()
                 .map(IStr::from)
                 .map(ValueRef::from)
@@ -327,14 +327,34 @@ impl Value for IStr {
 
         registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &ValueRef| {
             let mut out = String::from(lhs);
-            rhs.borrow().to_string(&mut out);
+            rhs.value().to_string(&mut out);
             IStr::from(out)
         });
     }
 }
 
 /// Array
-pub type Array = Vec<ValueRef>;
+#[derive(Debug, Clone)]
+pub struct Array(RefCell<Vec<ValueRef>>);
+
+impl<V: Into<ValueRef>> FromIterator<V> for Array {
+    fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {
+        Self(RefCell::new(iter.into_iter().map(Into::into).collect()))
+    }
+}
+
+impl From<Array> for Vec<ValueRef> {
+    fn from(value: Array) -> Self {
+        value.0.into_inner()
+    }
+}
+
+impl Array {
+    pub fn into_vec(self) -> Vec<ValueRef> {
+        self.into()
+    }
+}
+
 impl Value for Array {
     fn type_name() -> Cow<'static, str>
     where
@@ -349,26 +369,32 @@ impl Value for Array {
 
     fn to_string(&self, out: &mut String) {
         out.push('[');
-        for (i, x) in self.iter().enumerate() {
+        for (i, x) in self.0.borrow().iter().enumerate() {
             if i > 0 {
                 out.push_str(", ");
             }
-            x.borrow().to_string(out)
+            x.value().to_string(out)
         }
         out.push(']');
     }
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_list()
             .entries(
-                self.iter()
-                    .map(|e| std::fmt::from_fn(|fmt| e.borrow().debug(fmt))),
+                self.0
+                    .borrow()
+                    .iter()
+                    .map(|e| std::fmt::from_fn(|fmt| e.value().debug(fmt))),
             )
             .finish()
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(
-            self.iter().map(|x| x.snapshot()).collect::<Self>(),
-        ))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(
+            self.0
+                .borrow()
+                .iter()
+                .map(|x| x.snapshot())
+                .collect::<Self>(),
+        )
     }
 
     fn truthy(&self) -> bool {
@@ -379,14 +405,18 @@ impl Value for Array {
     where
         Self: Sized,
     {
-        registry.register_method::<fn(&mut _) -> _>("len", |this| this.len() as i64);
-        registry.register_method::<fn(&mut _, VarArgs) -> _>("push", |this, args| {
-            this.extend(args.inner);
+        registry.register_method::<fn(&_) -> _>("len", |this| this.0.borrow().len() as i64);
+        registry.register_method::<fn(&_, VarArgs) -> _>("push", |this, args| {
+            this.0.borrow_mut().extend(args.inner);
             ValueRef::null()
         });
         registry.register_index_get_set(
-            |_, this, &idx: &i64| Ok(normalise_index(idx, this.len())?.map(|n| this[n].clone())),
-            |ctx, this: &mut Self, &idx: &i64, value: ValueRef| {
+            |_, this, &idx: &i64| {
+                let this = this.0.borrow();
+                Ok(normalise_index(idx, this.len())?.map(|n| this[n].clone()))
+            },
+            |ctx, this: &Self, &idx: &i64, value: ValueRef| {
+                let mut this = this.0.borrow_mut();
                 let idx = normalise_index_error(idx, this.len(), ctx.span)?;
                 this[idx] = value;
                 Ok(())
@@ -396,7 +426,14 @@ impl Value for Array {
 }
 
 #[derive(Debug, Clone)]
-pub struct Object(pub IndexMap<IStr, ValueRef>);
+pub struct Object(pub RefCell<IndexMap<IStr, ValueRef>>);
+
+impl Object {
+    pub fn into_map(self) -> IndexMap<IStr, ValueRef> {
+        self.0.into_inner()
+    }
+}
+
 impl Value for Object {
     fn type_name() -> Cow<'static, str>
     where
@@ -411,7 +448,7 @@ impl Value for Object {
 
     fn to_string(&self, out: &mut String) {
         out.push('{');
-        for (k, v) in &self.0 {
+        for (k, v) in &*self.0.borrow() {
             if Ident::is_valid(k) {
                 out.push_str(k);
             } else {
@@ -425,27 +462,24 @@ impl Value for Object {
                 out.push('"');
             }
             out.push_str(": ");
-            v.borrow().to_string(out);
+            v.value().to_string(out);
         }
         out.push('}');
     }
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt.debug_map()
-            .entries(
-                self.0
-                    .iter()
-                    .map(|(k, v)| (k, std::fmt::from_fn(|fmt| v.borrow().debug(fmt)))),
-            )
+            .entries(self.0.borrow().iter().map(|(k, v)| (k, v.debug())))
             .finish()
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(
             self.0
+                .borrow()
                 .iter()
                 .map(|(k, v)| (k.clone(), v.snapshot()))
                 .collect::<Self>(),
-        ))
+        )
     }
     fn truthy(&self) -> bool {
         true
@@ -456,14 +490,14 @@ impl Value for Object {
         Self: Sized,
     {
         registry.register_index_get_set(
-            |_, this, idx: &IStr| this.0.get(&**idx).cloned(),
+            |_, this, idx: &IStr| this.0.borrow().get(&**idx).cloned(),
             |_, this, idx: &IStr, value| {
-                this.0.insert(idx.clone(), value);
+                this.0.borrow_mut().insert(idx.clone(), value);
             },
         );
         registry.register_field_get_set_fallback(
             |_, this, field| {
-                if let Some(value) = this.0.get(&field.inner).cloned() {
+                if let Some(value) = this.0.borrow().get(&field.inner).cloned() {
                     Ok(value)
                 } else {
                     Err(EvalError::UnknownField {
@@ -473,7 +507,7 @@ impl Value for Object {
                 }
             },
             |_, this, field, value| {
-                this.0.insert(field.inner, value);
+                this.0.borrow_mut().insert(field.inner, value);
             },
         );
     }
@@ -481,11 +515,11 @@ impl Value for Object {
 
 impl<K: Into<IStr>, V: Into<ValueRef>> FromIterator<(K, V)> for Object {
     fn from_iter<T: IntoIterator<Item = (K, V)>>(iter: T) -> Self {
-        Self(
+        Self(RefCell::new(
             iter.into_iter()
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
-        )
+        ))
     }
 }
 
@@ -505,8 +539,8 @@ impl Value for fn(&IStr) -> ValueRef {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(fmt, "<native function>")
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(*self))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(*self)
     }
     fn truthy(&self) -> bool {
         true
@@ -516,7 +550,7 @@ impl Value for fn(&IStr) -> ValueRef {
     where
         Self: Sized,
     {
-        registry.register_call::<fn(&mut _, IStr) -> _>(|this, s| this(&s));
+        registry.register_call::<fn(&_, IStr) -> _>(|this, s| this(&s));
     }
 }
 

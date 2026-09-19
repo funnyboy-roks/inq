@@ -16,7 +16,7 @@ use crate::{
         registry::{self, BinOp, UnaryOp, VarArgs},
         value::{
             CallContext, Value, ValueRef,
-            native::{Null, Object},
+            native::{Array, Null, Object},
             ty::TypeValue,
         },
     },
@@ -253,7 +253,7 @@ impl Scope {
                 let op = match op {
                     crate::expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
                     crate::expr::PrefixOp::Not => {
-                        return Ok(operand.borrow().truthy().not().into());
+                        return Ok(operand.value().truthy().not().into());
                     }
                 };
                 let Some(unary_op) = self.engine.types().get(&operand, op_span)?.get_unary_op(op)
@@ -350,7 +350,7 @@ impl Scope {
                     InfixOp::Assign => unreachable!("handled above"),
                     InfixOp::Or => {
                         let lhs = self.eval(lhs)?;
-                        if lhs.borrow().truthy() {
+                        if lhs.value().truthy() {
                             return Ok(lhs);
                         } else {
                             return self.eval(rhs);
@@ -358,7 +358,7 @@ impl Scope {
                     }
                     InfixOp::And => {
                         let lhs = self.eval(lhs)?;
-                        if lhs.borrow().truthy() {
+                        if lhs.value().truthy() {
                             return self.eval(rhs);
                         } else {
                             return Ok(lhs);
@@ -427,7 +427,7 @@ impl Scope {
                 let operand = self.eval(*operand)?;
                 match op {
                     crate::expr::PostfixOp::AssertNotNull => {
-                        if operand.borrow().is::<Null>() {
+                        if operand.value().is::<Null>() {
                             Err(EvalError::NotNullAssertion { span })
                         } else {
                             Ok(operand)
@@ -530,7 +530,7 @@ impl Scope {
                 elze,
             } => {
                 let condition = self.make_child().eval(*condition)?;
-                if condition.borrow().truthy() {
+                if condition.value().truthy() {
                     self.make_child().eval(*then)
                 } else {
                     if let Some(elze) = elze {
@@ -540,11 +540,11 @@ impl Scope {
                     }
                 }
             }
-            Ast::ArrayLiteral { items } => Ok(items
+            Ast::ArrayLiteral { items } => items
                 .into_iter()
                 .map(|i| self.make_child().eval(i))
-                .collect::<Result<Vec<_>, _>>()?
-                .into()),
+                .collect::<Result<Array, _>>()
+                .map(Into::into),
             Ast::ObjectLiteral { fields } => {
                 let mut inner = IndexMap::<IStr, ValueRef>::new();
                 for f in fields {
@@ -565,7 +565,7 @@ impl Scope {
                     };
                     inner.insert(k, v);
                 }
-                Ok(Object(inner).into())
+                Ok(Object(inner.into()).into())
             }
         }
     }
@@ -575,7 +575,7 @@ impl Scope {
         let mut last = 0;
         for e in string.interpolations {
             out.push_str(&string.value[last..e.index]);
-            self.eval(e.expr)?.borrow().to_string(&mut out);
+            self.eval(e.expr)?.value().to_string(&mut out);
             last = e.index;
         }
         out.push_str(&string.value[last..]);

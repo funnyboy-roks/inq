@@ -142,7 +142,7 @@ pub fn base_engine() -> Rc<Engine> {
         "print",
         FunctionValue::new(|_ctx, s: ValueRef| {
             let mut out = String::new();
-            s.borrow().to_string(&mut out);
+            s.value().to_string(&mut out);
             println!("{}", out);
         }),
         true,

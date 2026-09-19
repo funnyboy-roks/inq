@@ -12,9 +12,17 @@ use inq_lang::{
     },
 };
 
-#[derive(Debug, Clone, derive_more::From)]
+#[derive(Debug, Clone)]
 pub struct BytesValue {
-    inner: Vec<u8>,
+    inner: RefCell<Vec<u8>>,
+}
+
+impl From<Vec<u8>> for BytesValue {
+    fn from(value: Vec<u8>) -> Self {
+        Self {
+            inner: RefCell::new(value),
+        }
+    }
 }
 
 impl Value for BytesValue {
@@ -31,7 +39,7 @@ impl Value for BytesValue {
 
     fn to_string(&self, out: &mut String) {
         use std::fmt::Write;
-        let mut hex = hex::encode(&self.inner);
+        let mut hex = hex::encode(&*self.inner.borrow());
         if hex.len() > 20 {
             hex.truncate(20);
             hex.push('…');
@@ -39,12 +47,12 @@ impl Value for BytesValue {
         write!(out, "Bytes(0x{})", hex).expect("Infallible");
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(fmt, "Bytes(0x{})", hex::encode(&self.inner))
+        write!(fmt, "Bytes(0x{})", hex::encode(&*self.inner.borrow()))
     }
 
     fn register(registry: &mut inq_lang::eval::registry::Registry<Self>)
@@ -71,6 +79,7 @@ impl Value for BytesValue {
         registry.register_static_method::<fn(_, _) -> _>(
             "from_array",
             |ctx: CallContext, array: Array| {
+                let array = array.into_vec();
                 let mut out = Vec::with_capacity(array.len());
                 for v in array {
                     if let Some(n) = v.downcast::<Int>()
@@ -88,32 +97,34 @@ impl Value for BytesValue {
             },
         );
 
-        registry.register_method::<fn(&mut _) -> _>("len", |this| this.inner.len() as Int);
-        registry.register_method::<fn(&mut _) -> _>("to_array", |this| {
+        registry.register_method::<fn(&_) -> _>("len", |this| this.inner.borrow().len() as Int);
+        registry.register_method::<fn(&_) -> _>("to_array", |this| {
             this.inner
+                .borrow()
                 .iter()
                 .copied()
                 .map(Int::from)
-                .map(Into::into)
                 .collect::<Array>()
         });
-        registry.register_method::<fn(&mut _) -> _>("to_utf8_string", |this| {
-            Some(IStr::from(str::from_utf8(&this.inner).ok()?))
+        registry.register_method::<fn(&_) -> _>("to_utf8_string", |this| {
+            Some(IStr::from(str::from_utf8(&*this.inner.borrow()).ok()?))
         });
-        registry.register_method::<fn(&mut _) -> _>("to_hex", |this| {
-            Some(IStr::from(hex::encode(&this.inner)))
+        registry.register_method::<fn(&_) -> _>("to_hex", |this| {
+            Some(IStr::from(hex::encode(&*this.inner.borrow())))
         });
-        registry.register_method::<fn(&mut _) -> _>("to_base64", |this| {
-            Some(IStr::from(BASE64_STANDARD.encode(&this.inner)))
+        registry.register_method::<fn(&_) -> _>("to_base64", |this| {
+            Some(IStr::from(BASE64_STANDARD.encode(&*this.inner.borrow())))
         });
         registry.register_index_get_set(
             |_, this, &idx: &Int| {
-                Ok(normalise_index(idx, this.inner.len())?
-                    .map(|n| this.inner[n])
+                let this = this.inner.borrow();
+                Ok(normalise_index(idx, this.len())?
+                    .map(|n| this[n])
                     .map(Int::from))
             },
             |ctx, this, &idx: &Int, value: ValueRef| {
-                let idx = normalise_index_error(idx, this.inner.len(), ctx.index_span)?;
+                let mut this = this.inner.borrow_mut();
+                let idx = normalise_index_error(idx, this.len(), ctx.index_span)?;
                 let n = value.expect_downcast::<Int>(ctx.rhs_span)?;
                 if !(0..=255).contains(&n) {
                     return Err(EvalError::custom(
@@ -121,7 +132,7 @@ impl Value for BytesValue {
                         "Byte value must be in range [0, 255]",
                     ));
                 }
-                this.inner[idx] = n as _;
+                this[idx] = n as _;
                 Ok(())
             },
         );
@@ -147,7 +158,7 @@ mod test {
         );
 
         assert_eq!(
-            bytes.unwrap::<BytesValue>().inner,
+            bytes.unwrap::<BytesValue>().inner.into_inner(),
             hex::decode("746869732069732068657861646563696d616c21").unwrap()
         );
     }
@@ -166,7 +177,7 @@ mod test {
         let bytes = eval!(e, Bytes.from_base64("dGhpcyBpcyBiYXNlNjQh"));
 
         assert_eq!(
-            bytes.unwrap::<BytesValue>().inner,
+            bytes.unwrap::<BytesValue>().inner.into_inner(),
             base64::engine::general_purpose::STANDARD
                 .decode("dGhpcyBpcyBiYXNlNjQh")
                 .unwrap()

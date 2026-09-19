@@ -39,7 +39,7 @@ impl TryFrom<Response> for ResponseValue {
             version: value.version(),
             url: UrlValue(value.url().clone()),
             remote_addr: value.remote_addr(),
-            headers: HeaderMapValue(value.headers().clone()),
+            headers: HeaderMapValue(RefCell::new(value.headers().clone())),
             content_length: value.content_length(),
             body: {
                 let encoding = value.headers().get(header::CONTENT_ENCODING);
@@ -102,8 +102,8 @@ impl Value for ResponseValue {
         write!(out, "<response>").unwrap();
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -124,18 +124,18 @@ impl Value for ResponseValue {
         registry.register_field_get("content_length", |_, this| {
             this.content_length.map(|n| n as Int).unwrap_or_default()
         });
-        registry.register_method::<fn(CallContext, &mut _) -> _>("json", |ctx, this| {
+        registry.register_method::<fn(CallContext, &_) -> _>("json", |ctx, this| {
             this.body
                 .json()
                 .map_err(|e| ctx.error(format!("Unable to parse response body as json: {}", e)))
         });
-        registry.register_method::<fn(CallContext, &mut _) -> _>("text", |ctx, this| {
+        registry.register_method::<fn(CallContext, &_) -> _>("text", |ctx, this| {
             this.body
                 .text()
                 .map_err(|e| ctx.error(format!("Unable to parse response body as text: {}", e)))
                 .map(IStr::from)
         });
-        registry.register_method::<fn(CallContext, &mut _) -> _>("bytes", |ctx, this| {
+        registry.register_method::<fn(CallContext, &_) -> _>("bytes", |ctx, this| {
             this.body
                 .bytes()
                 .map_err(|e| ctx.error(format!("{}", e)))

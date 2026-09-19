@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use crate::eval::{
     registry::{AnyRegistry, Registry},
@@ -34,9 +34,8 @@ impl Value for TypeValue {
         write!(out, "Type<{}>", self.reg.name).unwrap();
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        // TypeValues are immutable, so we don't need to clone the inner Rc
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        unreachable!()
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,7 +46,7 @@ impl Value for TypeValue {
     where
         Self: Sized,
     {
-        registry.register_method::<fn(&mut _, ValueRef) -> _>("is_instance", |this, val| {
+        registry.register_method::<fn(&_, ValueRef) -> _>("is_instance", |this, val| {
             val.type_id() == this.reg.type_id
         });
         registry.register_method_fallback(|ctx, method, args| {

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc, str::FromStr};
+use std::{rc::Rc, str::FromStr};
 
 use cookie::Cookie;
 use inq_lang::{
@@ -29,8 +29,8 @@ impl Value for CookieValue {
         out.push_str("Cookie")
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

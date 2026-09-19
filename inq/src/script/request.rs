@@ -28,39 +28,39 @@ pub(crate) enum RequestBody {
 #[derive(Debug, Clone)]
 pub(crate) struct RequestValue {
     pub method: Method,
-    pub url: Rc<RefCell<UrlValue>>,
-    pub headers: Rc<RefCell<HeaderMapValue>>,
-    pub body: RequestBody,
-    pub client: Rc<RefCell<ClientConfig>>,
+    pub url: Rc<UrlValue>,
+    pub headers: Rc<HeaderMapValue>,
+    pub body: Rc<RefCell<RequestBody>>,
+    pub client: Rc<ClientConfig>,
 }
 
 impl RequestValue {
     pub(crate) fn new(client: CliClientConfig, method: Method, url: Url) -> Self {
         Self {
             method,
-            url: Rc::new(RefCell::new(UrlValue(url))),
-            headers: Rc::new(RefCell::new(HeaderMapValue(HeaderMap::from_iter([(
+            url: Rc::new(UrlValue(url)),
+            headers: Rc::new(HeaderMapValue(RefCell::new(HeaderMap::from_iter([(
                 HeaderName::from_static("user-agent"),
                 HeaderValue::from_static(concat!("inq/", env!("CARGO_PKG_VERSION"))),
             )])))),
-            body: RequestBody::None,
-            client: Rc::new(RefCell::new(client.into())),
+            body: Rc::new(RefCell::new(RequestBody::None)),
+            client: Rc::new(client.into()),
         }
     }
 
     pub(crate) fn into_reqwest(self) -> (Request, Client) {
-        ((&self).into(), self.client.borrow().clone().into())
+        ((&self).into(), (&*self.client).clone().into())
     }
 }
 
 impl From<&RequestValue> for Request {
     fn from(value: &RequestValue) -> Self {
-        let mut request = Request::new(value.method.clone(), value.url.borrow().0.clone());
-        *request.headers_mut() = value.headers.borrow().0.clone();
-        match &value.body {
+        let mut request = Request::new(value.method.clone(), value.url.0.clone());
+        *request.headers_mut() = value.headers.0.borrow().clone();
+        match &*value.body.borrow() {
             RequestBody::None => {}
             RequestBody::Json(json) => {
-                *request.body_mut() = Some(Body::from(json.0.to_string()));
+                *request.body_mut() = Some(Body::from(json.0.borrow().to_string()));
             }
             RequestBody::Text(istr) => {
                 *request.body_mut() = Some(Body::from(istr.as_str().to_string()));
@@ -84,14 +84,14 @@ impl Value for RequestValue {
 
     fn to_string(&self, out: &mut String) {
         use std::fmt::Write;
-        write!(out, "{} {}", self.method, self.url.borrow().0).unwrap();
+        write!(out, "{} {}", self.method, self.url.0).unwrap();
     }
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         <Self as std::fmt::Debug>::fmt(self, f)
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
     fn truthy(&self) -> bool {
         true
@@ -108,24 +108,24 @@ impl Value for RequestValue {
         registry.register_field_get("client", |_, this| ValueRef::from_ref(this.client.clone()));
         registry.register_field_get_set(
             "body",
-            |_, this| match &this.body {
+            |_, this| match &*this.body.borrow() {
                 RequestBody::None => ValueRef::null(),
                 RequestBody::Json(json) => json.clone().into(),
                 RequestBody::Text(text) => text.clone().into(),
             },
             |ctx, this, rhs| {
                 if rhs.is::<Null>() {
-                    this.body = RequestBody::None;
-                    this.headers.borrow_mut().0.remove(header::CONTENT_TYPE);
+                    *this.body.borrow_mut() = RequestBody::None;
+                    this.headers.0.borrow_mut().remove(header::CONTENT_TYPE);
                 } else if let Some(json) = rhs.downcast::<Json>() {
-                    this.body = RequestBody::Json(json);
-                    this.headers.borrow_mut().0.insert(
+                    *this.body.borrow_mut() = RequestBody::Json(json);
+                    this.headers.0.borrow_mut().insert(
                         header::CONTENT_TYPE,
                         HeaderValue::from_str("application/json").unwrap(),
                     );
                 } else if let Some(text) = rhs.downcast::<IStr>() {
-                    this.body = RequestBody::Text(text);
-                    this.headers.borrow_mut().0.insert(
+                    *this.body.borrow_mut() = RequestBody::Text(text);
+                    this.headers.0.borrow_mut().insert(
                         header::CONTENT_TYPE,
                         HeaderValue::from_str("text/plain; charset=utf-8").unwrap(),
                     );

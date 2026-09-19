@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc, str::FromStr, time::Instant};
+use std::{ops::Deref, rc::Rc, str::FromStr, time::Instant};
 
 use inq_lang::{
     IStr, Route,
@@ -111,11 +111,11 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
 
     let url = parse_url(&config, route, &scope)?;
 
-    let request = Rc::new(RefCell::new(RequestValue::new(
+    let request = Rc::new(RequestValue::new(
         route_cmd.client,
         route.method.to_reqwest(),
         url,
-    )));
+    ));
 
     if let Some(ref before) = route.before {
         let scope = scope.make_child();
@@ -124,8 +124,8 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
         scope.eval(before.clone().into())?;
     }
 
-    let req_body = request.borrow().body.clone();
-    let (request, client) = request.borrow().clone().into_reqwest();
+    let req_body = request.body.borrow().clone();
+    let (request, client) = request.deref().clone().into_reqwest();
 
     print_request(&request, &req_body)?;
 

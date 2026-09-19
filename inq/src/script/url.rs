@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use inq_lang::{
     IStr,
@@ -21,8 +21,8 @@ impl Value for UrlValue {
     fn type_name_of(&self) -> std::borrow::Cow<'static, str> {
         Self::type_name()
     }
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
     fn truthy(&self) -> bool {
         true
@@ -35,7 +35,7 @@ impl Value for UrlValue {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         macro_rules! debug {
             ($e: expr) => {
-                std::fmt::from_fn(|fmt| ValueRef::from($e).borrow().debug(fmt))
+                ValueRef::from($e).debug()
             };
         }
         fmt.debug_struct("Url")

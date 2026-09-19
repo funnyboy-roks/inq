@@ -13,7 +13,7 @@ use inq_lang::{
 };
 
 #[derive(Debug, Clone)]
-pub(crate) struct Json(pub serde_json::Value);
+pub(crate) struct Json(pub RefCell<serde_json::Value>);
 impl Value for Json {
     fn type_name() -> std::borrow::Cow<'static, str>
     where
@@ -28,11 +28,11 @@ impl Value for Json {
 
     fn to_string(&self, out: &mut String) {
         use std::fmt::Write;
-        write!(out, "{}", self.0).unwrap();
+        write!(out, "{}", self.0.borrow()).unwrap();
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -47,18 +47,19 @@ impl Value for Json {
     where
         Self: Sized,
     {
-        registry.register_method::<fn(&mut _) -> _>("to_object", |this| Self::to_value(&this.0));
+        registry
+            .register_method::<fn(&_) -> _>("to_object", |this| Self::to_value(&this.0.borrow()));
     }
 }
 
 impl Json {
     pub fn from_value(ctx: CallContext, arg: ValueRef) -> EvalResult<Self> {
-        Json::json_inner(&ctx, arg).map(Self)
+        Json::json_inner(&ctx, arg).map(RefCell::new).map(Self)
     }
 
     pub fn json_inner(ctx: &CallContext, arg: ValueRef) -> EvalResult<serde_json::Value> {
         #[allow(clippy::redundant_pattern_matching)]
-        if let Some(s) = arg.borrow().downcast_ref::<IStr>() {
+        if let Some(s) = arg.downcast::<IStr>() {
             Ok(serde_json::Value::String(s.into()))
         } else if let Some(i) = arg.downcast::<Int>() {
             Ok(serde_json::Value::from(i))
@@ -69,9 +70,13 @@ impl Json {
         } else if let Some(_) = arg.downcast::<Null>() {
             Ok(serde_json::Value::from(()))
         } else if let Some(a) = arg.downcast::<Array>() {
-            a.into_iter().map(|a| Self::json_inner(ctx, a)).collect()
+            a.into_vec()
+                .into_iter()
+                .map(|a| Self::json_inner(ctx, a))
+                .collect()
         } else if let Some(o) = arg.downcast::<Object>() {
-            o.0.into_iter()
+            o.into_map()
+                .into_iter()
                 .map(|(k, v)| {
                     let x = Self::json_inner(ctx, v)?;
                     Ok((k.as_str().to_string(), x))
@@ -125,9 +130,9 @@ mod test {
             _after: json({ "key1": "bar", "key2": 0, "key3": 0.5, "key4": true, "key5": false, "key6": null }).to_object()
         });
 
-        let obj = j.unwrap::<Object>().0;
-        let before = obj["_before"].unwrap::<Object>().0;
-        let after = obj["_after"].unwrap::<Object>().0;
+        let obj = j.unwrap::<Object>().into_map();
+        let before = obj["_before"].unwrap::<Object>().into_map();
+        let after = obj["_after"].unwrap::<Object>().into_map();
 
         macro_rules! assert_key {
             ($key:literal as $ty:ty) => {
@@ -166,7 +171,7 @@ mod test {
         }));
 
         assert_eq!(
-            j.unwrap::<Json>().0,
+            j.unwrap::<Json>().0.into_inner(),
             serde_json::json!({
                 "key1": "bar",
                 "key2": 0,
@@ -207,7 +212,7 @@ mod test {
         }));
 
         assert_eq!(
-            j.unwrap::<Json>().0,
+            j.unwrap::<Json>().0.into_inner(),
             serde_json::json!({
                 "key1": "bar",
                 "key2": 0,

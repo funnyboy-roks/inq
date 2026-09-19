@@ -21,10 +21,10 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
 {
     fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<Option<ValueRef>> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
-        let x = index.borrow();
+        let x = index.value();
         let idx = x.unwrap_ref::<I>();
 
         Ok(self(ctx, this, idx).map(Into::into))
@@ -35,10 +35,10 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
 {
     fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<Option<ValueRef>> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
-        let x = index.borrow();
+        let x = index.value();
         let idx = x.unwrap_ref::<I>();
 
         Ok(self(ctx, this, idx)?.map(Into::into))
@@ -60,7 +60,7 @@ pub trait IndexSetter {
     ) -> EvalResult<()>;
 }
 
-impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> () {
+impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &T, &I, ValueRef) -> () {
     fn set(
         &self,
         index: ValueRef,
@@ -68,10 +68,10 @@ impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I
         ctx: CallContext<SetIndexCtx>,
     ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
 
-        let x = index.borrow();
+        let x = index.value();
         let idx = x.unwrap_ref::<I>();
 
         self(ctx, this, idx, value);
@@ -79,7 +79,7 @@ impl<T: Value, I: Value> IndexSetter for fn(CallContext<SetIndexCtx>, &mut T, &I
     }
 }
 impl<T: Value, I: Value> IndexSetter
-    for fn(CallContext<SetIndexCtx>, &mut T, &I, ValueRef) -> EvalResult<()>
+    for fn(CallContext<SetIndexCtx>, &T, &I, ValueRef) -> EvalResult<()>
 {
     fn set(
         &self,
@@ -88,10 +88,10 @@ impl<T: Value, I: Value> IndexSetter
         ctx: CallContext<SetIndexCtx>,
     ) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
 
-        let x = index.borrow();
+        let x = index.value();
         let idx = x.unwrap_ref::<I>();
 
         self(ctx, this, idx, value)

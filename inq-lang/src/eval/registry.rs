@@ -1,6 +1,6 @@
 use std::{
-    any::TypeId, borrow::Cow, cell::RefCell, cmp::Ordering, collections::HashMap, fmt::Debug,
-    marker::PhantomData, rc::Rc,
+    any::TypeId, borrow::Cow, cmp::Ordering, collections::HashMap, fmt::Debug, marker::PhantomData,
+    rc::Rc,
 };
 
 use crate::{
@@ -119,9 +119,7 @@ impl<V: Value + Clone> FromVarArgs for V {
         }
 
         let x = varargs.shift().expect("checked above");
-        let borrow = x.borrow();
-        #[allow(non_snake_case)]
-        let Some(v) = borrow.downcast_ref::<V>() else {
+        let Some(v) = x.value().downcast_ref::<V>() else {
             return varargs.error(ctx, expected);
         };
 
@@ -138,9 +136,7 @@ impl<V: Value + Clone> FromVarArgs for Option<V> {
         let Some(x) = varargs.shift() else {
             return Ok(None);
         };
-        let borrow = x.borrow();
-        #[allow(non_snake_case)]
-        let Some(v) = borrow.downcast_ref::<V>() else {
+        let Some(v) = x.value().downcast_ref::<V>() else {
             return varargs.error(ctx, expected);
         };
 
@@ -279,8 +275,8 @@ impl Value for FunctionValue {
         write!(fmt, "<native function>")
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
     }
     fn truthy(&self) -> bool {
         true
@@ -290,15 +286,15 @@ impl Value for FunctionValue {
     where
         Self: Sized,
     {
-        registry.register_call::<fn(_, &mut _, VarArgs) -> _>(|ctx, f, args| f.0.call(args, ctx));
+        registry.register_call::<fn(_, &_, VarArgs) -> _>(|ctx, f, args| f.0.call(args, ctx));
     }
 }
 
 impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction for fn(CallContext, &L, &R) -> Ret {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<L>();
-        let borrow = rhs.borrow();
+        let borrow = rhs.value();
         let rhs = borrow.unwrap_ref::<R>();
 
         Ok(self(ctx, lhs, rhs).into())
@@ -308,9 +304,9 @@ impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction
     for fn(CallContext, &L, &R) -> EvalResult<Ret>
 {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<L>();
-        let borrow = rhs.borrow();
+        let borrow = rhs.value();
         let rhs = borrow.unwrap_ref::<R>();
 
         Ok(self(ctx, lhs, rhs)?.into())
@@ -318,7 +314,7 @@ impl<L: Value, R: Value, Ret: Into<ValueRef>> BinOpFunction
 }
 impl<L: Value, Ret: Into<ValueRef>> BinOpFunction for fn(CallContext, &L, &ValueRef) -> Ret {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<L>();
 
         Ok(self(ctx, lhs, &rhs).into())
@@ -328,7 +324,7 @@ impl<L: Value, Ret: Into<ValueRef>> BinOpFunction
     for fn(CallContext, &L, &ValueRef) -> EvalResult<Ret>
 {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef, ctx: CallContext) -> EvalResult<ValueRef> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<L>();
 
         Ok(self(ctx, lhs, &rhs)?.into())
@@ -338,7 +334,7 @@ impl<L: Value, Ret: Into<ValueRef>> BinOpFunction
 impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> Ret {
     fn apply(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let borrow = this.borrow();
+        let borrow = this.value();
         let this = borrow.unwrap_ref::<T>();
 
         Ok(self(ctx, this).into())
@@ -347,7 +343,7 @@ impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> R
 impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> EvalResult<Ret> {
     fn apply(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let borrow = this.borrow();
+        let borrow = this.value();
         let this = borrow.unwrap_ref::<T>();
 
         Ok(self(ctx, this)?.into())
@@ -356,10 +352,10 @@ impl<T: Value, Ret: Into<ValueRef>> UnaryOpFunction for fn(CallContext, &T) -> E
 
 impl<T: Value, Rhs: Value> CmpFunction for fn(&T, &Rhs) -> Option<Ordering> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef) -> Option<Ordering> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<T>();
 
-        let borrow = rhs.borrow();
+        let borrow = rhs.value();
         let rhs = borrow.unwrap_ref::<Rhs>();
 
         self(lhs, rhs)
@@ -367,7 +363,7 @@ impl<T: Value, Rhs: Value> CmpFunction for fn(&T, &Rhs) -> Option<Ordering> {
 }
 impl<T: Value> CmpFunction for fn(&T, &ValueRef) -> Option<Ordering> {
     fn apply(&self, lhs: ValueRef, rhs: ValueRef) -> Option<Ordering> {
-        let borrow = lhs.borrow();
+        let borrow = lhs.value();
         let lhs = borrow.unwrap_ref::<T>();
 
         self(lhs, &rhs)
@@ -607,10 +603,10 @@ impl<T: Value> Registry<T> {
         &mut self,
         name: &'static str,
         getter: fn(CallContext, &T) -> Ret,
-        setter: fn(CallContext, &mut T, ValueRef) -> SetRet,
+        setter: fn(CallContext, &T, ValueRef) -> SetRet,
     ) where
         fn(CallContext, &T) -> Ret: Getter + 'static,
-        fn(CallContext, &mut T, ValueRef) -> SetRet: Setter + 'static,
+        fn(CallContext, &T, ValueRef) -> SetRet: Setter + 'static,
     {
         self.inner.fields.insert(
             name,
@@ -631,10 +627,10 @@ impl<T: Value> Registry<T> {
     pub fn register_field_get_set_fallback<Ret: 'static, SetRet: 'static>(
         &mut self,
         getter: fn(CallContext, &T, Ident) -> Ret,
-        setter: fn(CallContext, &mut T, Ident, ValueRef) -> SetRet,
+        setter: fn(CallContext, &T, Ident, ValueRef) -> SetRet,
     ) where
         fn(CallContext, &T, Ident) -> Ret: FieldGetFallback + 'static,
-        fn(CallContext, &mut T, Ident, ValueRef) -> SetRet: FieldSetFallback + 'static,
+        fn(CallContext, &T, Ident, ValueRef) -> SetRet: FieldSetFallback + 'static,
     {
         self.inner.field_get_fallback = Rc::new(getter);
         self.inner.field_set_fallback = Rc::new(setter);
@@ -658,10 +654,10 @@ impl<T: Value> Registry<T> {
     pub fn register_index_get_set<IndexType, Ret, SR>(
         &mut self,
         getter: fn(CallContext<GetIndexCtx>, &T, &IndexType) -> Ret,
-        setter: fn(CallContext<SetIndexCtx>, &mut T, &IndexType, ValueRef) -> SR,
+        setter: fn(CallContext<SetIndexCtx>, &T, &IndexType, ValueRef) -> SR,
     ) where
         fn(CallContext<GetIndexCtx>, &T, &IndexType) -> Ret: IndexGetter + 'static,
-        fn(CallContext<SetIndexCtx>, &mut T, &IndexType, ValueRef) -> SR: IndexSetter + 'static,
+        fn(CallContext<SetIndexCtx>, &T, &IndexType, ValueRef) -> SR: IndexSetter + 'static,
     {
         self.inner.indexers.insert(
             TypeId::of::<IndexType>(),

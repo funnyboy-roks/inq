@@ -1,15 +1,21 @@
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
-    cell::{OnceCell, Ref, RefCell, RefMut},
     fmt::{Debug, Display},
     ops::Deref,
     rc::Rc,
 };
 
 use crate::{
-    Span,
-    eval::{EvalError, EvalResult, registry::Registry, value::native::Null},
+    IStr, Span,
+    eval::{
+        EvalError, EvalResult,
+        registry::Registry,
+        value::{
+            native::{Float, Int, Null},
+            ty::TypeValue,
+        },
+    },
 };
 
 /// Native types
@@ -17,7 +23,50 @@ pub mod native;
 pub mod ty;
 
 #[derive(Clone)]
-pub struct ValueRef(Rc<RefCell<dyn Value>>);
+enum Primitive {
+    Int(Int),
+    Float(Float),
+    Bool(bool),
+    Null(Null),
+    IStr(IStr),
+    Type(TypeValue),
+}
+
+impl Primitive {
+    fn new(v: &dyn Value) -> Option<Self> {
+        match () {
+            () if let Some(r) = v.downcast_ref::<Int>() => Some(Self::Int(*r)),
+            () if let Some(r) = v.downcast_ref::<Float>() => Some(Self::Float(*r)),
+            () if let Some(r) = v.downcast_ref::<bool>() => Some(Self::Bool(*r)),
+            () if let Some(r) = v.downcast_ref::<Null>() => Some(Self::Null(r.clone())),
+            () if let Some(r) = v.downcast_ref::<IStr>() => Some(Self::IStr(r.clone())),
+            () if let Some(r) = v.downcast_ref::<TypeValue>() => Some(Self::Type(r.clone())),
+            _ => None,
+        }
+    }
+
+    fn value(&self) -> &dyn Value {
+        match self {
+            Primitive::Int(r) => r,
+            Primitive::Float(r) => r,
+            Primitive::Bool(r) => r,
+            Primitive::Null(r) => r,
+            Primitive::IStr(r) => r,
+            Primitive::Type(r) => r,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum ValueRefInner {
+    Primitive(Primitive),
+    Dyn(Rc<dyn Value>),
+}
+
+#[derive(Clone)]
+pub struct ValueRef {
+    inner: ValueRefInner,
+}
 
 impl<V: Value> From<V> for ValueRef {
     fn from(value: V) -> Self {
@@ -33,45 +82,57 @@ impl<V: Into<ValueRef>> From<Option<V>> for ValueRef {
 
 impl Debug for ValueRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.borrow())
+        write!(f, "{:?}", self.value())
     }
 }
 
 impl ValueRef {
     pub fn new(value: impl Value) -> Self {
-        Self(Rc::new(RefCell::new(value)))
+        let inner = if let Some(p) = Primitive::new(&value) {
+            ValueRefInner::Primitive(p)
+        } else {
+            ValueRefInner::Dyn(Rc::new(value))
+        };
+        Self { inner }
     }
 
-    pub fn from_ref(value: Rc<RefCell<impl Value>>) -> Self {
-        Self(value)
+    pub fn from_ref(value: Rc<impl Value>) -> Self {
+        let inner = if let Some(p) = Primitive::new(&*value) {
+            ValueRefInner::Primitive(p)
+        } else {
+            ValueRefInner::Dyn(value)
+        };
+        Self { inner }
     }
 
     pub fn null() -> Self {
-        thread_local! {
-            static NULL: OnceCell<ValueRef> = const { OnceCell::new() };
+        Self {
+            inner: ValueRefInner::Primitive(Primitive::Null(Null)),
         }
-        NULL.with(|null| null.get_or_init(|| Self::new(Null)).clone())
+    }
+
+    pub fn value(&self) -> &dyn Value {
+        match self.inner {
+            ValueRefInner::Primitive(ref p) => p.value(),
+            ValueRefInner::Dyn(ref v) => &**v,
+        }
     }
 
     pub fn type_id(&self) -> TypeId {
-        let b = self.0.borrow();
-        (&*b as &dyn Any).type_id()
-    }
-
-    pub fn borrow(&self) -> Ref<'_, dyn Value> {
-        self.0.borrow()
-    }
-
-    pub fn borrow_mut(&self) -> RefMut<'_, dyn Value> {
-        self.0.borrow_mut()
+        let b = self.value();
+        (b as &dyn Any).type_id()
     }
 
     pub fn type_name_of(&self) -> Cow<'static, str> {
-        self.borrow().type_name_of()
+        self.value().type_name_of()
     }
 
     pub fn downcast<T: Value + Clone>(&self) -> Option<T> {
-        self.borrow().downcast_ref().cloned()
+        self.value().downcast_ref().cloned()
+    }
+
+    pub fn downcast_ref<T: Value + Clone>(&self) -> Option<&T> {
+        self.value().downcast_ref()
     }
 
     /// Downcast or panic if self is not T
@@ -83,19 +144,19 @@ impl ValueRef {
             panic!(
                 "Expected type {} got type {}",
                 T::type_name(),
-                self.borrow().type_name_of()
+                self.type_name_of()
             );
         }
     }
 
     pub fn is<T: Value>(&self) -> bool {
-        self.borrow().is::<T>()
+        self.value().is::<T>()
     }
 
     pub fn expect_downcast<T: Value + Clone>(&self, span: Span) -> EvalResult<T> {
         self.downcast::<T>().ok_or_else(|| EvalError::InvalidType {
             expected: T::type_name().into(),
-            actual: self.borrow().type_name_of().into(),
+            actual: self.value().type_name_of().into(),
             span,
         })
     }
@@ -104,7 +165,7 @@ impl ValueRef {
         struct VDebug<'a>(&'a ValueRef);
         impl Debug for VDebug<'_> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                self.0.borrow().debug(f)
+                self.0.value().debug(f)
             }
         }
         VDebug(self)
@@ -115,7 +176,7 @@ impl ValueRef {
         impl Display for VDisplay<'_> {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
                 let mut s = String::new();
-                self.0.borrow().to_string(&mut s);
+                self.0.value().to_string(&mut s);
                 write!(f, "{}", s)
             }
         }
@@ -123,7 +184,11 @@ impl ValueRef {
     }
 
     pub(crate) fn snapshot(&self) -> Self {
-        Self(self.borrow().snapshot())
+        let inner = match &self.inner {
+            ValueRefInner::Primitive(p) => ValueRefInner::Primitive(p.clone()),
+            ValueRefInner::Dyn(d) => ValueRefInner::Dyn(d.snapshot()),
+        };
+        Self { inner }
     }
 }
 
@@ -183,7 +248,7 @@ pub trait Value: Any + Debug {
     fn to_string(&self, out: &mut String);
     /// Take a snapshot of the value in its current state.  The value returned should not change
     /// once returned.
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>>;
+    fn snapshot(&self) -> Rc<dyn Value>;
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result;
     fn truthy(&self) -> bool {
         true

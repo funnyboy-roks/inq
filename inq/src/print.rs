@@ -93,7 +93,7 @@ pub fn print_request(req: &Request, body: &RequestBody) -> miette::Result<()> {
         RequestBody::None => {}
         RequestBody::Json(value) => {
             eprintln!("{}:", "Request Body (JSON)".cyan());
-            pretty_print_json(&mut anstream::stderr().lock(), value.0.clone(), 0)
+            pretty_print_json(&mut anstream::stderr().lock(), value.0.borrow().clone(), 0)
                 .into_diagnostic()?;
             eprintln!();
         }
@@ -151,7 +151,7 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
     }
 
     eprintln!("  {}:", "Headers".blue());
-    for (name, value) in &res.headers.0 {
+    for (name, value) in &*res.headers.0.borrow() {
         match value.to_str() {
             Ok(s) => eprintln!("    {}: {}", name.yellow(), s),
             Err(_) => eprintln!("    {}: {:?}", name.yellow(), value),
@@ -169,7 +169,7 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
             Some("application/json") if !raw => {
                 eprintln!("{}{}:", "Response Body (JSON)".cyan(), encoding);
                 let json = res.body.json().context("Parsing response body as json")?;
-                pretty_print_json(&mut anstream::stdout().lock(), json.0.clone(), 0)
+                pretty_print_json(&mut anstream::stdout().lock(), json.0.borrow().clone(), 0)
                     .into_diagnostic()?;
                 println!();
             }

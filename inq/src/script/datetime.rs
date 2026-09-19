@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc};
+use std::rc::Rc;
 
 use chrono::{DateTime, Utc};
 use chrono_humanize::Humanize;
@@ -43,8 +43,8 @@ impl Value for DateTimeValue {
         write!(out, "{}", self.inner).unwrap();
     }
 
-    fn snapshot(&self) -> std::rc::Rc<std::cell::RefCell<dyn Value>> {
-        Rc::new(RefCell::new(self.clone()))
+    fn snapshot(&self) -> std::rc::Rc<dyn Value> {
+        Rc::new(self.clone())
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -61,9 +61,8 @@ impl Value for DateTimeValue {
                 .map(Self::from)
                 .map_err(|e| ctx.error(format!("Unable to parse DateTime: {}", e)))
         });
-        registry.register_method::<fn(&mut _) -> _>("to_rfc3339", |this| {
-            this.inner.to_rfc3339().intern()
-        });
+        registry
+            .register_method::<fn(&_) -> _>("to_rfc3339", |this| this.inner.to_rfc3339().intern());
 
         registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &DurationValue| {
             Self::from(lhs.inner + rhs.0)

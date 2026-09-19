@@ -17,7 +17,7 @@ pub trait Setter {
 impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> R {
     fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this).into())
@@ -26,26 +26,26 @@ impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> R {
 impl<T: Value, R: Into<ValueRef>> Getter for fn(CallContext, &T) -> EvalResult<R> {
     fn get(&self, ctx: CallContext) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this)?.into())
     }
 }
 
-impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) -> EvalResult<()> {
+impl<T: Value> Setter for fn(CallContext, &T, ValueRef) -> EvalResult<()> {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
         self(ctx, this, value)
     }
 }
-impl<T: Value> Setter for fn(CallContext, &mut T, ValueRef) {
+impl<T: Value> Setter for fn(CallContext, &T, ValueRef) {
     fn set(&self, value: ValueRef, ctx: CallContext) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
         self(ctx, this, value);
         Ok(())
     }
@@ -62,7 +62,7 @@ pub trait FieldSetFallback {
 impl<T: Value, R: Into<ValueRef>> FieldGetFallback for fn(CallContext, &T, Ident) -> R {
     fn get(&self, ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this, field).into())
@@ -71,26 +71,26 @@ impl<T: Value, R: Into<ValueRef>> FieldGetFallback for fn(CallContext, &T, Ident
 impl<T: Value, R: Into<ValueRef>> FieldGetFallback for fn(CallContext, &T, Ident) -> EvalResult<R> {
     fn get(&self, ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
         let this = ctx.self_ref.clone();
-        let x = this.borrow();
+        let x = this.value();
         let this = x.unwrap_ref::<T>();
 
         Ok(self(ctx, this, field)?.into())
     }
 }
 
-impl<T: Value> FieldSetFallback for fn(CallContext, &mut T, Ident, ValueRef) -> EvalResult<()> {
+impl<T: Value> FieldSetFallback for fn(CallContext, &T, Ident, ValueRef) -> EvalResult<()> {
     fn set(&self, ctx: CallContext, field: Ident, value: ValueRef) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
         self(ctx, this, field, value)
     }
 }
-impl<T: Value> FieldSetFallback for fn(CallContext, &mut T, Ident, ValueRef) {
+impl<T: Value> FieldSetFallback for fn(CallContext, &T, Ident, ValueRef) {
     fn set(&self, ctx: CallContext, field: Ident, value: ValueRef) -> EvalResult<()> {
         let this = ctx.self_ref.clone();
-        let mut x = this.borrow_mut();
-        let this = x.unwrap_mut::<T>();
+        let x = this.value();
+        let this = x.unwrap_ref::<T>();
         self(ctx, this, field, value);
         Ok(())
     }

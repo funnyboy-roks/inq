@@ -1,4 +1,4 @@
-use std::{cell::RefCell, rc::Rc, time::Duration};
+use std::{rc::Rc, time::Duration};
 
 use inq_lang::{
     IStr,
@@ -37,8 +37,8 @@ impl Value for DurationValue {
         write!(out, "{}", humantime::format_duration(self.0)).unwrap();
     }
 
-    fn snapshot(&self) -> Rc<RefCell<dyn Value>> {
-        Rc::new(RefCell::new(*self))
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(*self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -53,17 +53,13 @@ impl Value for DurationValue {
     {
         registry.register_bin_op(BinOp::Add, |_, lhs, rhs: &Self| Self(lhs.0 + rhs.0));
         registry.register_bin_op(BinOp::Sub, |_, lhs, rhs: &Self| Self(lhs.0 - rhs.0));
-        registry.register_method::<fn(&mut _) -> _>("secs", |this: &mut Self| this.0.as_secs_f64());
-        registry.register_method::<fn(&mut _) -> _>("millis", |this: &mut Self| {
-            this.0.as_millis() as Int
-        });
-        registry.register_method::<fn(&mut _) -> _>("mins", |this: &mut Self| {
-            this.0.as_secs_f64() / 60.
-        });
-        registry.register_method::<fn(&mut _) -> _>("hours", |this: &mut Self| {
+        registry.register_method::<fn(&_) -> _>("secs", |this: &Self| this.0.as_secs_f64());
+        registry.register_method::<fn(&_) -> _>("millis", |this: &Self| this.0.as_millis() as Int);
+        registry.register_method::<fn(&_) -> _>("mins", |this: &Self| this.0.as_secs_f64() / 60.);
+        registry.register_method::<fn(&_) -> _>("hours", |this: &Self| {
             this.0.as_secs_f64() / 60. / 60.
         });
-        registry.register_method::<fn(&mut _) -> _>("days", |this: &mut Self| {
+        registry.register_method::<fn(&_) -> _>("days", |this: &Self| {
             this.0.as_secs_f64() / 60. / 60. / 24.
         });
 
