@@ -118,6 +118,7 @@ impl_punct! {
     Plus      => "+"  (op: true  )
     Minus     => "-"  (op: true  )
     Bang      => "!"  (op: true  )
+    Question  => "?"  (op: false )
     Star      => "*"  (op: true  )
 }
 

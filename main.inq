@@ -32,7 +32,7 @@ route file => POST "/echo"
 
 route raw => POST "/echo"
     before {
-        body = Bytes.from_hex("dGhocyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRm")
+        body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=")
     }
 
 route status(code = 401) => GET "/status/${code}";
