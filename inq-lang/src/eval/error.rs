@@ -151,6 +151,18 @@ pub enum EvalError {
         #[label = "here"]
         span: Span,
     },
+    #[error("'?' not allowed on left side of assignment")]
+    InvalidQuestion {
+        #[label = "here"]
+        span: Span,
+    },
+    #[error("Missing index {} on type {}", index, value)]
+    MissingIndex {
+        value: String,
+        index: String,
+        #[label = "here"]
+        span: Span,
+    },
     #[error("{}", _0)]
     #[diagnostic(transparent)]
     Transparent(miette::Error),

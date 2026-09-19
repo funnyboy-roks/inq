@@ -7,7 +7,7 @@ use inq_lang::{
         EvalError,
         value::{
             CallContext, Value, ValueRef,
-            native::{Array, Int, normalise_index},
+            native::{Array, Int, normalise_index, normalise_index_error},
         },
     },
 };
@@ -107,13 +107,13 @@ impl Value for BytesValue {
             Some(IStr::from(BASE64_STANDARD.encode(&this.inner)))
         });
         registry.register_index_get_set(
-            |ctx, this, &idx: &Int| {
-                Ok(Int::from(
-                    this.inner[normalise_index(idx, this.inner.len(), ctx.index_span)?],
-                ))
+            |_, this, &idx: &Int| {
+                Ok(normalise_index(idx, this.inner.len())?
+                    .map(|n| this.inner[n])
+                    .map(Int::from))
             },
             |ctx, this, &idx: &Int, value: ValueRef| {
-                let idx = normalise_index(idx, this.inner.len(), ctx.index_span)?;
+                let idx = normalise_index_error(idx, this.inner.len(), ctx.index_span)?;
                 let n = value.expect_downcast::<Int>(ctx.rhs_span)?;
                 if !(0..=255).contains(&n) {
                     return Err(EvalError::custom(

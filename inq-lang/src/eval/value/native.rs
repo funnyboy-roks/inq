@@ -385,9 +385,9 @@ impl Value for Array {
             ValueRef::null()
         });
         registry.register_index_get_set(
-            |ctx, this, &idx: &i64| Ok(this[normalise_index(idx, this.len(), ctx.span)?].clone()),
+            |_, this, &idx: &i64| Ok(normalise_index(idx, this.len())?.map(|n| this[n].clone())),
             |ctx, this: &mut Self, &idx: &i64, value: ValueRef| {
-                let idx = normalise_index(idx, this.len(), ctx.span)?;
+                let idx = normalise_index_error(idx, this.len(), ctx.span)?;
                 this[idx] = value;
                 Ok(())
             },
@@ -456,7 +456,7 @@ impl Value for Object {
         Self: Sized,
     {
         registry.register_index_get_set(
-            |_, this, idx: &IStr| this.0.get(&**idx).cloned().unwrap_or_else(ValueRef::null),
+            |_, this, idx: &IStr| this.0.get(&**idx).cloned(),
             |_, this, idx: &IStr, value| {
                 this.0.insert(idx.clone(), value);
             },
@@ -520,37 +520,41 @@ impl Value for fn(&IStr) -> ValueRef {
     }
 }
 
-pub fn normalise_index(i: i64, len: usize, span: Span) -> EvalResult<usize> {
+pub fn normalise_index(i: i64, len: usize) -> EvalResult<Option<usize>> {
     let ni = if i < 0 { len as i64 + i } else { i };
 
     if ni < 0 || ni >= len as i64 {
-        Err(EvalError::Custom {
-            message: format!("Index {} out of bounds for length {}", i, len),
-            span,
-        })
+        Ok(None)
     } else {
-        Ok(ni as _)
+        Ok(Some(ni as _))
     }
+}
+
+pub fn normalise_index_error(i: i64, len: usize, span: Span) -> EvalResult<usize> {
+    normalise_index(i, len)?.ok_or_else(|| EvalError::Custom {
+        message: format!("Index {} out of bounds for length {}", i, len),
+        span,
+    })
 }
 
 #[cfg(test)]
 mod test {
     use std::assert_matches;
 
-    use crate::{Span, eval::value::native::normalise_index};
+    use crate::{Span, eval::value::native::normalise_index_error};
 
     #[test]
     fn norm_index() {
-        assert_matches!(normalise_index(-5, 3, Span::empty()), Err(_));
-        assert_matches!(normalise_index(-4, 3, Span::empty()), Err(_));
-        assert_matches!(normalise_index(-3, 3, Span::empty()), Ok(0));
-        assert_matches!(normalise_index(-2, 3, Span::empty()), Ok(1));
-        assert_matches!(normalise_index(-1, 3, Span::empty()), Ok(2));
-        assert_matches!(normalise_index(0, 3, Span::empty()), Ok(0));
-        assert_matches!(normalise_index(1, 3, Span::empty()), Ok(1));
-        assert_matches!(normalise_index(2, 3, Span::empty()), Ok(2));
-        assert_matches!(normalise_index(3, 3, Span::empty()), Err(_));
-        assert_matches!(normalise_index(4, 3, Span::empty()), Err(_));
-        assert_matches!(normalise_index(5, 3, Span::empty()), Err(_));
+        assert_matches!(normalise_index_error(-5, 3, Span::empty()), Err(_));
+        assert_matches!(normalise_index_error(-4, 3, Span::empty()), Err(_));
+        assert_matches!(normalise_index_error(-3, 3, Span::empty()), Ok(0));
+        assert_matches!(normalise_index_error(-2, 3, Span::empty()), Ok(1));
+        assert_matches!(normalise_index_error(-1, 3, Span::empty()), Ok(2));
+        assert_matches!(normalise_index_error(0, 3, Span::empty()), Ok(0));
+        assert_matches!(normalise_index_error(1, 3, Span::empty()), Ok(1));
+        assert_matches!(normalise_index_error(2, 3, Span::empty()), Ok(2));
+        assert_matches!(normalise_index_error(3, 3, Span::empty()), Err(_));
+        assert_matches!(normalise_index_error(4, 3, Span::empty()), Err(_));
+        assert_matches!(normalise_index_error(5, 3, Span::empty()), Err(_));
     }
 }

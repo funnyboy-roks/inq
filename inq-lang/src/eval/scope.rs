@@ -307,7 +307,14 @@ impl Scope {
 
                             Ok(ValueRef::null())
                         }
-                        Ast::Index { value, index } => {
+                        Ast::Index {
+                            value,
+                            index,
+                            question,
+                        } => {
+                            if let Some(question) = question {
+                                return Err(EvalError::InvalidQuestion { span: question });
+                            }
                             let span = index.span;
                             let ctx = registry::SetIndexCtx {
                                 rhs_span: rhs.span,
@@ -469,7 +476,11 @@ impl Scope {
                 let ctx = CallContext::new(span, value);
                 reg.call_method(ctx, method, VarArgs::new(eval_args))
             }
-            Ast::Index { value, index } => {
+            Ast::Index {
+                value,
+                index,
+                question,
+            } => {
                 let span = index.span;
                 let ctx_ext = registry::GetIndexCtx {
                     index_span: index.span,
@@ -477,8 +488,22 @@ impl Scope {
                 let value = self.eval(*value)?;
                 let index = self.make_child().eval(*index)?;
                 let idx = self.engine.get_index(&value, &index, span)?;
-                idx.getter
-                    .get(index, CallContext::new_ext(span, value.clone(), ctx_ext))
+                let v = idx.getter.get(
+                    index.clone(),
+                    CallContext::new_ext(span, value.clone(), ctx_ext),
+                )?;
+
+                if let Some(v) = v {
+                    Ok(v)
+                } else if question.is_some() {
+                    Ok(ValueRef::null())
+                } else {
+                    Err(EvalError::MissingIndex {
+                        value: value.type_name_of().into(),
+                        index: index.display().to_string(),
+                        span,
+                    })
+                }
             }
             Ast::FunctionCall { func, args, span } => {
                 let mut eval_args = Vec::with_capacity(args.len());

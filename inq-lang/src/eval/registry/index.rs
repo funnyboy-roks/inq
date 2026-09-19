@@ -12,13 +12,14 @@ pub struct GetIndexCtx {
 }
 
 pub trait IndexGetter {
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef>;
+    /// Get the index.  This function _must_ return `Ok(None)` if the index is not present
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<Option<ValueRef>>;
 }
 
 impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
-    for fn(CallContext<GetIndexCtx>, &T, &I) -> R
+    for fn(CallContext<GetIndexCtx>, &T, &I) -> Option<R>
 {
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<Option<ValueRef>> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
         let this = x.unwrap_ref::<T>();
@@ -26,13 +27,13 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
         let x = index.borrow();
         let idx = x.unwrap_ref::<I>();
 
-        Ok(self(ctx, this, idx).into())
+        Ok(self(ctx, this, idx).map(Into::into))
     }
 }
 impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
-    for fn(CallContext<GetIndexCtx>, &T, &I) -> EvalResult<R>
+    for fn(CallContext<GetIndexCtx>, &T, &I) -> EvalResult<Option<R>>
 {
-    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<ValueRef> {
+    fn get(&self, index: ValueRef, ctx: CallContext<GetIndexCtx>) -> EvalResult<Option<ValueRef>> {
         let this = ctx.self_ref.clone();
         let x = this.borrow();
         let this = x.unwrap_ref::<T>();
@@ -40,7 +41,7 @@ impl<T: Value, I: Value, R: Into<ValueRef>> IndexGetter
         let x = index.borrow();
         let idx = x.unwrap_ref::<I>();
 
-        Ok(self(ctx, this, idx)?.into())
+        Ok(self(ctx, this, idx)?.map(Into::into))
     }
 }
 

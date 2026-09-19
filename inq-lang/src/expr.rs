@@ -233,7 +233,11 @@ pub enum Ast {
         args: Vec<Expr>,
     },
     #[display("{}[{}]", value, index)]
-    Index { value: Box<Expr>, index: Box<Expr> },
+    Index {
+        value: Box<Expr>,
+        index: Box<Expr>,
+        question: Option<Span>,
+    },
     #[display("{}({})", func, DisplayList(args))]
     FunctionCall {
         func: Box<Expr>,
@@ -448,13 +452,14 @@ impl Expr {
             }
             TokenTreeInner::Group {
                 delim: GroupDelim::Bracket,
-                mut tokens,
+                tokens: mut inner_tokens,
             } => {
                 let span = lhs.span + tokens.span();
                 Expr {
                     ast: Ast::Index {
                         value: Box::new(lhs),
-                        index: Box::new(tokens.parse()?),
+                        index: Box::new(inner_tokens.parse()?),
+                        question: tokens.next_if(Punct::Question).map(|t| t.span),
                     },
                     span,
                 }
