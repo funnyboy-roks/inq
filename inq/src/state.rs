@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-struct PersistedVariable {
-    value: IStr,
-    expires_at: Option<DateTime<Utc>>,
+pub(crate) struct PersistedVariable {
+    pub value: IStr,
+    pub expires_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -130,5 +130,28 @@ impl State {
             .map_err(|e| miette::miette!("Error writing .inq/variables.json: {}", e))?;
 
         Ok(())
+    }
+
+    pub(crate) fn persisted_variables(&self) -> impl Iterator<Item = (IStr, PersistedVariable)> {
+        self.variables.iter().map(|(k, v)| (k.clone(), v.clone()))
+    }
+
+    pub(crate) fn get_persisted_var(&self, name: impl AsRef<str>) -> Option<PersistedVariable> {
+        self.variables.get(name.as_ref()).cloned()
+    }
+
+    pub(crate) fn set_persisted_var(
+        &mut self,
+        name: impl Into<IStr>,
+        value: impl Into<IStr>,
+        expires_at: Option<DateTime<Utc>>,
+    ) -> Option<PersistedVariable> {
+        self.variables.insert(
+            name.into(),
+            PersistedVariable {
+                value: value.into(),
+                expires_at,
+            },
+        )
     }
 }

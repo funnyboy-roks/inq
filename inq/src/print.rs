@@ -4,7 +4,12 @@ use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
 
-use crate::script::{request::RequestBody, response::ResponseValue};
+use crate::{
+    script::{request::RequestBody, response::ResponseValue},
+    state::PersistedVariable,
+};
+
+pub const DATETIME_FORMAT: &str = "%Y-%m-%d %H:%M:%S";
 
 #[macro_export]
 macro_rules! warn {
@@ -194,4 +199,31 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
     }
 
     Ok(())
+}
+
+pub fn print_variable(v: PersistedVariable, indent: bool) {
+    use owo_colors::OwoColorize as _;
+    if indent {
+        eprint!("  ");
+    }
+    eprint!("{}   ", "Value:".blue());
+    let _ = std::io::stderr().flush(); // ensure the Value: is printed
+
+    println!("{}", v.value); // print to stdout so it can be piped
+
+    if indent {
+        eprint!("  ");
+    }
+    if let Some(expires_at) = v.expires_at {
+        eprintln!(
+            "{} {} {}",
+            "Expires:".blue(),
+            expires_at
+                .with_timezone(&chrono::Local)
+                .format(DATETIME_FORMAT),
+            format!("({})", chrono_humanize::HumanTime::from(expires_at)).yellow(),
+        );
+    } else {
+        eprintln!("{} Never", "Expires:".blue());
+    }
 }
