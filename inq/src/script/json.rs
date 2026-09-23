@@ -52,6 +52,11 @@ impl Value for Json {
     {
         registry
             .register_method::<fn(&_) -> _>("to_object", |this| Self::to_value(&this.0.borrow()));
+        registry.register_static_method("parse", |ctx, s: IStr| {
+            let json = serde_json::from_str::<serde_json::Value>(s.as_str())
+                .map_err(|e| ctx.error_arg(0, format!("Unable to parse JSON: {}", e)))?;
+            Ok(Self(json.into()))
+        });
     }
 }
 
@@ -233,6 +238,17 @@ mod test {
                 "key13": [[0]],
                 "key14": [0, ["hello"], { "foo": "bar" }],
             })
+        )
+    }
+
+    #[test]
+    fn parse() {
+        let e = base_engine();
+        let j = eval_expr!(e, Json.parse("{\"foo\": \"bar\"}"));
+
+        assert_eq!(
+            j.unwrap::<Json>().0.into_inner(),
+            serde_json::json!({ "foo": "bar" })
         )
     }
 }
