@@ -7,6 +7,28 @@ pub mod eval;
 pub mod route;
 pub mod variable;
 
+#[derive(Debug, Clone)]
+pub struct NamedRouteArg {
+    pub name: String,
+    pub value: String,
+}
+
+impl NamedRouteArg {
+    pub fn parse(s: &str) -> Result<Self, clap::error::Error> {
+        if let Some((name, value)) = s.split_once('=') {
+            Ok(Self {
+                name: name.into(),
+                value: value.into(),
+            })
+        } else {
+            Err(clap::error::Error::raw(
+                clap::error::ErrorKind::InvalidValue,
+                "Expected KEY=VALUE",
+            ))
+        }
+    }
+}
+
 #[derive(Debug, Args, Default)]
 pub struct CliClientConfig {
     /// The number of redirects allowed by the client.  If not specified, then no limit is set
@@ -20,35 +42,31 @@ pub struct CliClientConfig {
     pub connect_timeout: Option<humantime::Duration>,
     /// The interface upon which to connect to the the remote server.
     ///
-    /// NOTE: This flag is not supported on Windows
-    #[cfg(any(
-        target_os = "android",
-        target_os = "fuchsia",
-        target_os = "illumos",
-        target_os = "ios",
-        target_os = "linux",
-        target_os = "macos",
-        target_os = "solaris",
-        target_os = "tvos",
-        target_os = "visionos",
-        target_os = "watchos",
-    ))]
+    /// NOTE: This flag is ignored on Windows
     #[clap(long)]
     pub interface: Option<String>,
 }
 
 #[derive(Debug, Parser)]
 pub struct RouteCommand {
-    /// Print the raw body of the response
+    /// Print the raw body of the response, rather than attempting to format it
     #[clap(short, long)]
     pub raw: bool,
     #[clap(flatten)]
     pub client: CliClientConfig,
     /// The route to run.  If not passed, all routes will be listed
     pub route: Option<String>,
-    /// Arguments to pass to the route
+    /// Route arguments that are identified by their name
     ///
-    /// Optional arguments (those with `= <value>`) may be omitted
+    /// Should be used in the format of `--arg <name>=<value>`.  This flag may be specified multiple times
+    #[clap(short = 'a', long = "arg", value_parser = NamedRouteArg::parse)]
+    pub named_args: Vec<NamedRouteArg>,
+    /// Route arguments that are identified by their position
+    ///
+    /// Arguments defined with `= <value>` may be ommited.  All other arguments must be assigned a
+    /// value.
+    ///
+    /// See Also: `--arg`
     pub args: Vec<String>,
 }
 

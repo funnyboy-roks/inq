@@ -15,6 +15,7 @@ pub fn make_cli(dir: &Path, route_name: &str) -> Cli {
             client: Default::default(),
             route: Some(route_name.into()),
             args: Vec::new(),
+            named_args: Vec::new(),
         }),
     }
 }

@@ -1,8 +1,8 @@
 use std::{ops::Deref, rc::Rc, str::FromStr, time::Instant};
 
 use inq_lang::{
-    IStr, Route,
-    eval::{EvalError, Scope, Special, value::ValueRef},
+    IStr, Route, StringExt,
+    eval::{Scope, Special, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use reqwest::Url;
@@ -14,6 +14,7 @@ use crate::{
     script::{request::RequestValue, response::ResponseValue, url::UrlValue},
     state::State,
     util::ToReqwest,
+    warn,
 };
 
 fn list_routes(config: Config) -> miette::Result<()> {
@@ -39,14 +40,11 @@ fn list_routes(config: Config) -> miette::Result<()> {
         .routes
         .iter()
         .map(|r| {
-            format!(
-                "{}",
-                r.args
-                    .iter()
-                    .map(|a| a.name.as_istr().to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+            r.args
+                .iter()
+                .map(|a| a.name.as_istr().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         })
         .collect::<Vec<_>>();
 
@@ -114,6 +112,61 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
     Ok(url)
 }
 
+fn handle_cli(scope: &Rc<Scope>, route_cmd: &RouteCommand, route: &Route) -> miette::Result<()> {
+    let mut cli_values = route.args.iter().map(|_| None::<IStr>).collect::<Vec<_>>();
+    for (dest, value) in cli_values.iter_mut().zip(route_cmd.args.iter()) {
+        *dest = Some(value.intern());
+    }
+    for value in &route_cmd.named_args {
+        if let Some((i, _)) = route
+            .args
+            .iter()
+            .enumerate()
+            .find(|(_, a)| a.name == &*value.name)
+        {
+            if let Some(existing) = &cli_values[i] {
+                // special case if the values are the same, then just warn
+                if *existing == value.value {
+                    warn!("Argument `{}` specified twice", value.name);
+                } else {
+                    bail!(
+                        help = format!(
+                            "Specifying {} using either position OR `--arg {}={}`",
+                            value.name, value.name, value.value
+                        ),
+                        "Value of `{}` specified twice: First `{}`, then `{}`",
+                        value.name,
+                        existing,
+                        value.value
+                    );
+                }
+            } else {
+                cli_values[i] = Some(value.value.intern());
+            }
+        } else {
+            bail!("Unknown route arg: {}", value.name);
+        }
+    }
+
+    for (cli_arg, arg) in cli_values.into_iter().zip(route.args.iter()) {
+        let value = if let Some(cli_arg) = cli_arg {
+            cli_arg.into()
+        } else if let Some(ref default_value) = arg.default_value {
+            scope.eval(default_value.clone())?
+        } else {
+            miette::bail! {
+                labels = vec![arg.name.span.with_label("this argument")],
+                help = format!("Specify it using positional argument or `--arg {}=<value>`", arg.name),
+                "Argument `{}` is required", arg.name,
+            }
+        };
+
+        scope.set_variable_ref(arg.name.as_ref(), value, true);
+    }
+
+    Ok(())
+}
+
 pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette::Result<()> {
     let Some(route) = &route_cmd.route else {
         return list_routes(config);
@@ -122,26 +175,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
     let route = config.expect_route(route)?;
     let scope = config.engine.global().make_child();
 
-    for (arg, value) in route.args.iter().zip(
-        route_cmd
-            .args
-            .iter()
-            .map(Some)
-            .chain(std::iter::repeat(None)),
-    ) {
-        let value: ValueRef = if let Some(value) = value {
-            IStr::from(value.clone()).into()
-        } else if let Some(ref default_value) = arg.default_value {
-            scope.eval(default_value.clone())?
-        } else {
-            return Err(EvalError::Custom {
-                message: format!("Argument `{}` is required", arg.name),
-                span: arg.name.span,
-            }
-            .into());
-        };
-        scope.set_variable_ref(arg.name.as_ref(), value, true);
-    }
+    handle_cli(&scope, &route_cmd, route)?;
 
     let url = parse_url(&config, route, &scope)?;
 

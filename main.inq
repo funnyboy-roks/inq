@@ -31,7 +31,7 @@ route raw => POST "/echo"
         body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
     }
 
-route status(code = 401) => GET "/status/${code}";
+route status(code) => GET "/status/${code}";
 route status2(code = 401) => GET "https://httpbin.org/status/${code}";
 route json => POST "/json"
     before {
