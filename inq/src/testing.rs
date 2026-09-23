@@ -31,31 +31,3 @@ pub fn exec(tempdir: &Path, mut cli: Cli, config: impl Into<String>) -> miette::
     cli.config = tempdir.join("main.inq");
     run(cli, &config).map_err(|m| m.with_source_code(NamedSource::new("inline config", config)))
 }
-
-#[macro_export]
-macro_rules! eval {
-    ($engine: expr, $($tt: tt)*) => {{
-        let content = stringify!($($tt)*);
-        let mut parser = inq_lang::Parser::new(&content)
-            .map_err(|e| {
-                miette::Report::from(e)
-                    .with_source_code(miette::NamedSource::new("literal", content.to_string()))
-            })
-            .unwrap();
-        let expr = parser
-            .take_expr()
-            .map_err(|e| {
-                miette::Report::from(e)
-                    .with_source_code(miette::NamedSource::new("literal", content.to_string()))
-            })
-            .unwrap()
-            .unwrap();
-
-        $engine.global().eval(expr)
-            .map_err(|e| {
-                miette::Report::from(e)
-                    .with_source_code(miette::NamedSource::new("literal", content.to_string()))
-            })
-            .unwrap()
-    }};
-}

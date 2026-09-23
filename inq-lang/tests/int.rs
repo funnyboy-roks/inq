@@ -1,12 +1,13 @@
 use inq_lang::{
-    assert_value, eval,
+    assert_value,
     eval::{Engine, value::native::Int},
+    eval_expr,
 };
 
 #[test]
 fn it_exists() {
     let e = Engine::new();
-    let x = eval!(e, 34 + 35);
+    let x = eval_expr!(e, 34 + 35);
 
     let f = x.unwrap::<Int>();
     assert_eq!(f, 69);
@@ -69,5 +70,5 @@ fn parse() {
     assert_value!(e, Int.parse("-42") => -42);
     assert_value!(e, Int.parse("+49") => 49);
 
-    eval!(try e, Int.parse("this is not a valid int")).unwrap_err();
+    eval_expr!(try e, Int.parse("this is not a valid int")).unwrap_err();
 }

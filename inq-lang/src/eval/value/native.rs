@@ -77,6 +77,9 @@ impl Value for Int {
     fn truthy(&self) -> bool {
         *self != 0
     }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|v| v == self)
+    }
 
     fn register(registry: &mut Registry<Self>)
     where
@@ -143,6 +146,9 @@ impl Value for Float {
     }
     fn truthy(&self) -> bool {
         *self != 0.0
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|v| v == self)
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -214,6 +220,9 @@ impl Value for bool {
     fn truthy(&self) -> bool {
         *self
     }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|v| v == self)
+    }
 
     fn register(_: &mut Registry<Self>)
     where
@@ -240,6 +249,9 @@ impl Value for Null {
     }
     fn truthy(&self) -> bool {
         false
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some()
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -268,6 +280,9 @@ impl Value for IStr {
     }
     fn truthy(&self) -> bool {
         !self.is_empty()
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|v| v == self)
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -333,10 +348,63 @@ impl Value for IStr {
 #[derive(Debug, Clone)]
 pub struct Array(RefCell<Vec<ValueRef>>);
 
-impl<T: Value + PartialEq> PartialEq<&[T]> for Array {
-    fn eq(&self, other: &&[T]) -> bool {
+impl<T: Value + PartialEq> PartialEq<[T]> for Array {
+    fn eq(&self, other: &[T]) -> bool {
         let this = self.0.borrow();
         this.len() == other.len() && this.iter().zip(other.iter()).all(|(l, r)| l == r)
+    }
+}
+impl<T: Value + PartialEq> PartialEq<&[T]> for Array {
+    fn eq(&self, other: &&[T]) -> bool {
+        self == *other
+    }
+}
+impl<const N: usize, T: Value + PartialEq> PartialEq<&[T; N]> for Array {
+    fn eq(&self, &other: &&[T; N]) -> bool {
+        self == &other[..]
+    }
+}
+impl<const N: usize, T: Value + PartialEq> PartialEq<[T; N]> for Array {
+    fn eq(&self, other: &[T; N]) -> bool {
+        self == &other[..]
+    }
+}
+
+impl PartialEq<[ValueRef]> for Array {
+    fn eq(&self, other: &[ValueRef]) -> bool {
+        let this = self.0.borrow();
+        this.len() == other.len()
+            && this
+                .iter()
+                .zip(other.iter())
+                .all(|(l, r)| l.value().eq(r.clone()))
+    }
+}
+impl PartialEq<&[ValueRef]> for Array {
+    fn eq(&self, &other: &&[ValueRef]) -> bool {
+        self == other
+    }
+}
+impl<const N: usize> PartialEq<[ValueRef; N]> for Array {
+    fn eq(&self, other: &[ValueRef; N]) -> bool {
+        self == &other[..]
+    }
+}
+impl<const N: usize> PartialEq<&[ValueRef; N]> for Array {
+    fn eq(&self, &other: &&[ValueRef; N]) -> bool {
+        self == &other[..]
+    }
+}
+
+impl PartialEq for Array {
+    fn eq(&self, other: &Self) -> bool {
+        let this = self.0.borrow();
+        let other = other.0.borrow();
+        this.len() == other.len()
+            && this
+                .iter()
+                .zip(other.iter())
+                .all(|(l, r)| l.value().eq(r.clone()))
     }
 }
 
@@ -400,8 +468,8 @@ impl Value for Array {
         )
     }
 
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|v| v == self)
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -428,7 +496,7 @@ impl Value for Array {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Object(pub RefCell<IndexMap<IStr, ValueRef>>);
 
 impl Object {
@@ -484,14 +552,21 @@ impl Value for Object {
                 .collect::<Self>(),
         )
     }
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| self == o)
     }
 
     fn register(registry: &mut Registry<Self>)
     where
         Self: Sized,
     {
+        registry.register_method::<fn(&_) -> _>("len", |this| this.0.borrow().len() as Int);
+        registry.register_method::<fn(&_) -> _>("keys", |this| {
+            this.0.borrow().keys().cloned().collect::<Array>()
+        });
+        registry.register_method::<fn(&_) -> _>("values", |this| {
+            this.0.borrow().values().cloned().collect::<Array>()
+        });
         registry.register_index_get_set(
             |_, this, idx: &IStr| this.0.borrow().get(&**idx).cloned(),
             |_, this, idx: &IStr, value| {
@@ -523,37 +598,6 @@ impl<K: Into<IStr>, V: Into<ValueRef>> FromIterator<(K, V)> for Object {
                 .map(|(k, v)| (k.into(), v.into()))
                 .collect(),
         ))
-    }
-}
-
-impl Value for fn(&IStr) -> ValueRef {
-    fn type_name() -> Cow<'static, str>
-    where
-        Self: Sized,
-    {
-        "Function".into()
-    }
-    fn type_name_of(&self) -> Cow<'static, str> {
-        Self::type_name()
-    }
-    fn to_string(&self, out: &mut String) {
-        out.push_str("<native function>")
-    }
-    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(fmt, "<native function>")
-    }
-    fn snapshot(&self) -> Rc<dyn Value> {
-        Rc::new(*self)
-    }
-    fn truthy(&self) -> bool {
-        true
-    }
-
-    fn register(registry: &mut Registry<Self>)
-    where
-        Self: Sized,
-    {
-        registry.register_call::<fn(&_, IStr) -> _>(|this, s| this(&s));
     }
 }
 

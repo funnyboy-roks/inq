@@ -4,14 +4,14 @@ use inq_lang::{
     IStr, StringExt,
     eval::{
         registry::Registry,
-        value::{Value, native::Int},
+        value::{Value, ValueRef, native::Int},
     },
 };
 use reqwest::Url;
 
 use crate::debug_fmt;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UrlValue(pub(crate) Url);
 impl Value for UrlValue {
     fn type_name() -> std::borrow::Cow<'static, str>
@@ -26,8 +26,8 @@ impl Value for UrlValue {
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
     }
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn to_string(&self, out: &mut String) {

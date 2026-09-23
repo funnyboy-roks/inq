@@ -9,7 +9,7 @@ pub(crate) mod util;
 #[cfg(test)]
 mod test;
 #[cfg(any(feature = "testing", test))]
-mod testing;
+pub mod testing;
 
 pub use lex::Method;
 pub use parse::{Attribute, Ident, Item, Parser, Path, Route, RouteArg, Variable};

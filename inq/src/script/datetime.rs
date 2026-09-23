@@ -5,12 +5,15 @@ use chrono_humanize::Humanize;
 use cookie::time::OffsetDateTime;
 use inq_lang::{
     IStr, StringExt,
-    eval::{registry::BinOp, value::Value},
+    eval::{
+        registry::BinOp,
+        value::{Value, ValueRef},
+    },
 };
 
 use crate::script::duration::DurationValue;
 
-#[derive(Debug, Clone, derive_more::From)]
+#[derive(Debug, Clone, derive_more::From, PartialEq, Eq)]
 pub struct DateTimeValue {
     inner: DateTime<Utc>,
 }
@@ -42,6 +45,9 @@ impl Value for DateTimeValue {
 
     fn snapshot(&self) -> std::rc::Rc<dyn Value> {
         Rc::new(self.clone())
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -75,17 +81,15 @@ impl Value for DateTimeValue {
 #[cfg(test)]
 mod test {
     use chrono::{TimeDelta, TimeZone, Utc};
+    use inq_lang::eval_expr;
 
-    use crate::{
-        eval,
-        script::{base_engine, datetime::DateTimeValue},
-    };
+    use crate::script::{base_engine, datetime::DateTimeValue};
 
     #[test]
     fn now() {
         let e = base_engine();
 
-        let d = eval!(e, DateTime.now());
+        let d = eval_expr!(e, DateTime.now());
         let unwrapped = d.unwrap::<DateTimeValue>().inner;
         assert!(unwrapped - Utc::now() < TimeDelta::seconds(5));
     }
@@ -94,7 +98,7 @@ mod test {
     fn parse() {
         let e = base_engine();
 
-        let d = eval!(e, DateTime.parse("2015-05-15T12:00:00Z"));
+        let d = eval_expr!(e, DateTime.parse("2015-05-15T12:00:00Z"));
         let unwrapped = d.unwrap::<DateTimeValue>().inner;
         assert_eq!(
             unwrapped,
@@ -106,7 +110,7 @@ mod test {
     fn add() {
         let e = base_engine();
 
-        let d = eval!(
+        let d = eval_expr!(
             e,
             DateTime.parse("2015-05-15T12:00:00Z") + Duration.parse("1m 30s")
         );

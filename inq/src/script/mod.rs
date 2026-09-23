@@ -31,7 +31,7 @@ pub(crate) mod request;
 pub(crate) mod response;
 pub(crate) mod url;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Encoding {
     Gzip,
     Brotli,
@@ -78,7 +78,7 @@ impl Display for Encoding {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptBody {
     pub(crate) encoding: Option<Encoding>,
     pub(crate) content_type: Option<String>,

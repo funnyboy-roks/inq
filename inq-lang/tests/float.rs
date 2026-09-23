@@ -1,15 +1,16 @@
 use inq_lang::{
-    assert_value, eval,
+    assert_value,
     eval::{
         Engine,
         value::native::{Float, Int},
     },
+    eval_expr,
 };
 
 #[test]
 fn it_exists() {
     let e = Engine::new();
-    let x = eval!(e, 1.5 + 2.5);
+    let x = eval_expr!(e, 1.5 + 2.5);
 
     let f = x.unwrap::<Float>();
     assert_eq!(f, 1.5 + 2.5);
@@ -33,7 +34,7 @@ fn statik() {
     assert_value!(e, Float.inf     => f64::INFINITY);
     assert_value!(e, Float.neg_inf => f64::NEG_INFINITY);
     // because nan != nan
-    assert!(eval!(e, Float.nan).unwrap::<Float>().is_nan());
+    assert!(eval_expr!(e, Float.nan).unwrap::<Float>().is_nan());
 }
 
 /// not exhaustive, but should have some coverage
@@ -95,5 +96,5 @@ fn parse() {
     assert_value!(e, Float.parse(".5")     => 0.5);
     assert_value!(e, Float.parse("0.5")    => 0.5);
 
-    eval!(try e, Float.parse("this is not a valid float")).unwrap_err();
+    eval_expr!(try e, Float.parse("this is not a valid float")).unwrap_err();
 }

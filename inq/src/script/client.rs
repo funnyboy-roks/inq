@@ -14,7 +14,7 @@ use reqwest::{blocking::Client, redirect::Policy};
 
 use crate::{cli::CliClientConfig, script::duration::DurationValue};
 
-#[derive(Debug, Clone, derive_more::Deref)]
+#[derive(Debug, Clone, derive_more::Deref, PartialEq, Eq)]
 pub struct ClientConfig(pub RefCell<ClientConfigInner>);
 
 impl From<ClientConfigInner> for ClientConfig {
@@ -23,7 +23,7 @@ impl From<ClientConfigInner> for ClientConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfigInner {
     redirect: Option<usize>,
     timeout: Option<Duration>,
@@ -124,6 +124,9 @@ impl Value for ClientConfig {
 
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -5,12 +5,12 @@ use inq_lang::{
     eval::{
         EvalError,
         registry::Registry,
-        value::{Value, native::Int},
+        value::{Value, ValueRef, native::Int},
     },
 };
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeaderMapValue(pub(crate) RefCell<HeaderMap>);
 impl Value for HeaderMapValue {
     fn type_name() -> std::borrow::Cow<'static, str>
@@ -36,8 +36,8 @@ impl Value for HeaderMapValue {
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
     }
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn register(registry: &mut Registry<Self>)

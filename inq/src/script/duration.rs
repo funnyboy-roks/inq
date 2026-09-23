@@ -5,13 +5,13 @@ use inq_lang::{
     eval::{
         registry::BinOp,
         value::{
-            Value,
+            Value, ValueRef,
             native::{Float, Int},
         },
     },
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DurationValue(pub Duration);
 
 impl From<humantime::Duration> for DurationValue {
@@ -39,6 +39,9 @@ impl Value for DurationValue {
 
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(*self)
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -101,22 +104,19 @@ impl Value for DurationValue {
 
 #[cfg(test)]
 mod test {
-    use inq_lang::eval::value::native::Float;
+    use inq_lang::{eval::value::native::Float, eval_expr};
 
-    use crate::{
-        eval,
-        script::{base_engine, duration::DurationValue},
-    };
+    use crate::script::{base_engine, duration::DurationValue};
 
     #[test]
     fn seconds() {
         let e = base_engine();
 
-        let d = eval!(e, Duration.from_secs(69.42));
+        let d = eval_expr!(e, Duration.from_secs(69.42));
         let unwrapped = d.unwrap::<DurationValue>().0;
         assert_eq!(unwrapped.as_secs_f64(), 69.42);
 
-        let d = eval!(e, Duration.from_secs(69.42).secs());
+        let d = eval_expr!(e, Duration.from_secs(69.42).secs());
         let unwrapped = d.unwrap::<Float>();
         assert_eq!(unwrapped, 69.42);
     }
@@ -125,11 +125,11 @@ mod test {
     fn minutes() {
         let e = base_engine();
 
-        let d = eval!(e, Duration.from_mins(5.));
+        let d = eval_expr!(e, Duration.from_mins(5.));
         let unwrapped = d.unwrap::<DurationValue>().0;
         assert_eq!(unwrapped.as_secs(), 300);
 
-        let d = eval!(e, Duration.from_secs(345.).mins());
+        let d = eval_expr!(e, Duration.from_secs(345.).mins());
         let unwrapped = d.unwrap::<Float>();
         assert_eq!(unwrapped, 5.75);
     }
@@ -138,11 +138,11 @@ mod test {
     fn parse() {
         let e = base_engine();
 
-        let d = eval!(e, Duration.parse("5m"));
+        let d = eval_expr!(e, Duration.parse("5m"));
         let unwrapped = d.unwrap::<DurationValue>().0;
         assert_eq!(unwrapped.as_secs(), 300);
 
-        let d = eval!(e, Duration.parse("5 days"));
+        let d = eval_expr!(e, Duration.parse("5 days"));
         let unwrapped = d.unwrap::<DurationValue>().0;
         assert_eq!(unwrapped.as_secs(), 5 * 24 * 60 * 60);
     }

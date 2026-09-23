@@ -22,7 +22,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RequestBody {
     None,
     Json(Rc<Json>),
@@ -30,7 +30,7 @@ pub(crate) enum RequestBody {
     Bytes(Rc<BytesValue>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RequestValue {
     pub method: Method,
     pub url: Rc<UrlValue>,
@@ -113,8 +113,8 @@ impl Value for RequestValue {
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
     }
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn register(registry: &mut Registry<Self>)

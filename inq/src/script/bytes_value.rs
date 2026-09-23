@@ -12,7 +12,7 @@ use inq_lang::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BytesValue {
     inner: RefCell<Vec<u8>>,
 }
@@ -55,6 +55,9 @@ impl Value for BytesValue {
 
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -139,17 +142,14 @@ impl Value for BytesValue {
 #[cfg(test)]
 mod test {
     use base64::Engine;
-    use inq_lang::IStr;
+    use inq_lang::{IStr, eval_expr};
 
-    use crate::{
-        eval,
-        script::{base_engine, bytes_value::BytesValue},
-    };
+    use crate::script::{base_engine, bytes_value::BytesValue};
 
     #[test]
     fn from_hex() {
         let e = base_engine();
-        let bytes = eval!(
+        let bytes = eval_expr!(
             e,
             Bytes.from_hex("746869732069732068657861646563696d616c21")
         );
@@ -163,7 +163,7 @@ mod test {
     #[test]
     fn to_hex() {
         let e = base_engine();
-        let bytes = eval!(e, Bytes.from_array([250, 202, 222]).to_hex());
+        let bytes = eval_expr!(e, Bytes.from_array([250, 202, 222]).to_hex());
 
         assert_eq!(bytes.unwrap::<IStr>(), "facade");
     }
@@ -171,7 +171,7 @@ mod test {
     #[test]
     fn from_base64() {
         let e = base_engine();
-        let bytes = eval!(e, Bytes.from_base64("dGhpcyBpcyBiYXNlNjQh"));
+        let bytes = eval_expr!(e, Bytes.from_base64("dGhpcyBpcyBiYXNlNjQh"));
 
         assert_eq!(
             bytes.unwrap::<BytesValue>().inner.into_inner(),
@@ -184,7 +184,7 @@ mod test {
     #[test]
     fn to_base64() {
         let e = base_engine();
-        let bytes = eval!(e, Bytes.from_array([250, 202, 222]).to_base64());
+        let bytes = eval_expr!(e, Bytes.from_array([250, 202, 222]).to_base64());
 
         assert_eq!(bytes.unwrap::<IStr>(), "+sre");
     }

@@ -274,8 +274,8 @@ impl Value for FunctionValue {
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
     }
-    fn truthy(&self) -> bool {
-        true
+    fn eq(&self, _other: ValueRef) -> bool {
+        false
     }
 
     fn register(registry: &mut Registry<Self>)

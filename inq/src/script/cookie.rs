@@ -1,11 +1,14 @@
 use std::{rc::Rc, str::FromStr};
 
 use cookie::Cookie;
-use inq_lang::{IStr, StringExt, eval::value::Value};
+use inq_lang::{
+    IStr, StringExt,
+    eval::value::{Value, ValueRef},
+};
 
 use crate::{debug_fmt, script::datetime::DateTimeValue};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct CookieValue {
     inner: Cookie<'static>,
 }
@@ -28,6 +31,9 @@ impl Value for CookieValue {
 
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

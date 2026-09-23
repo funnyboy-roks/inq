@@ -4,7 +4,7 @@ use inq_lang::{
     IStr, StringExt,
     eval::{
         registry::{FnCtx, Registry},
-        value::{CallContext, Value, native::Int},
+        value::{CallContext, Value, ValueRef, native::Int},
     },
 };
 use miette::{Context, IntoDiagnostic};
@@ -17,7 +17,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResponseValue {
     pub status: Int,
     pub version: Version,
@@ -107,6 +107,9 @@ impl Value for ResponseValue {
 
     fn snapshot(&self) -> Rc<dyn Value> {
         Rc::new(self.clone())
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

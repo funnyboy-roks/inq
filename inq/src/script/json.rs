@@ -12,7 +12,7 @@ use inq_lang::{
     },
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Json(pub RefCell<serde_json::Value>);
 impl Value for Json {
     fn type_name() -> std::borrow::Cow<'static, str>
@@ -41,6 +41,9 @@ impl Value for Json {
 
     fn truthy(&self) -> bool {
         true
+    }
+    fn eq(&self, other: ValueRef) -> bool {
+        other.downcast_ref::<Self>().is_some_and(|o| o == self)
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -116,16 +119,17 @@ mod test {
     use inq_lang::{
         IStr,
         eval::value::native::{Float, Int, Null, Object},
+        eval_expr,
     };
 
     use super::Json;
 
-    use crate::{eval, script::base_engine};
+    use crate::script::base_engine;
 
     #[test]
     fn roundtrip() {
         let e = base_engine();
-        let j = eval!(e, {
+        let j = eval_expr!(e, {
             _before: { "key1": "bar", "key2": 0, "key3": 0.5, "key4": true, "key5": false, "key6": null },
             _after: json({ "key1": "bar", "key2": 0, "key3": 0.5, "key4": true, "key5": false, "key6": null }).to_object()
         });
@@ -153,7 +157,7 @@ mod test {
     #[test]
     fn valid_json() {
         let e = base_engine();
-        let j = eval!(e, json({
+        let j = eval_expr!(e, json({
             "key1": "bar",
             "key2": 0,
             "key3": 0.5,
@@ -194,7 +198,7 @@ mod test {
     #[test]
     fn valid_json_unquoted() {
         let e = base_engine();
-        let j = eval!(e, json({
+        let j = eval_expr!(e, json({
                 key1: "bar",
                 key2: 0,
                 key3: 0.5,

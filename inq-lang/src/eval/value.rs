@@ -77,6 +77,12 @@ pub struct ValueRef {
     inner: ValueRefInner,
 }
 
+impl PartialEq for ValueRef {
+    fn eq(&self, other: &Self) -> bool {
+        self.value().eq(other.clone())
+    }
+}
+
 impl<V: Value> From<V> for ValueRef {
     fn from(value: V) -> Self {
         Self::new(value)
@@ -310,6 +316,8 @@ pub trait Value: Any + Debug {
     fn truthy(&self) -> bool {
         true
     }
+    /// [`PartialEq`] implementation via [`ValueRef`]
+    fn eq(&self, other: ValueRef) -> bool;
 
     fn register(registry: &mut Registry<Self>)
     where

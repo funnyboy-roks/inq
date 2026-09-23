@@ -41,6 +41,11 @@ impl Value for TypeValue {
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(fmt, "Type<{}>", self.reg.name)
     }
+    fn eq(&self, other: ValueRef) -> bool {
+        other
+            .downcast_ref::<Self>()
+            .is_some_and(|o| o.reg.type_id == self.reg.type_id)
+    }
 
     fn register(registry: &mut Registry<Self>)
     where
