@@ -20,9 +20,16 @@ pub fn make_cli(dir: &Path, route_name: &str) -> Cli {
     }
 }
 
-pub fn run_cli_test(tempdir: &Path, route: &str, config: String) -> miette::Result<()> {
+pub fn run_cli_test(tempdir: &Path, route: &str, config: impl Into<String>) -> miette::Result<()> {
+    let config = config.into();
     run(make_cli(tempdir, route), &config)
         .map_err(|m| m.with_source_code(NamedSource::new("inline config", config)))
+}
+
+pub fn exec(tempdir: &Path, mut cli: Cli, config: impl Into<String>) -> miette::Result<()> {
+    let config = config.into();
+    cli.config = tempdir.join("main.inq");
+    run(cli, &config).map_err(|m| m.with_source_code(NamedSource::new("inline config", config)))
 }
 
 #[macro_export]
