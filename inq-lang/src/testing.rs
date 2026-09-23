@@ -5,18 +5,16 @@ use crate::eval::{Engine, EvalResult, value::ValueRef};
 pub fn eval_str(engine: Rc<Engine>, content: &str) -> EvalResult<ValueRef> {
     let mut parser = crate::Parser::new(content)
         .map_err(|e| {
-            miette::Report::from(e)
-                .with_source_code(miette::NamedSource::new("literal", content.to_string()))
+            miette::Report::from(e).with_source_code(
+                crate::source("literal", content.to_string()).with_language("inq"),
+            )
         })
         .unwrap();
 
     let mut last = ValueRef::null();
     while let Some(e) = parser
         .take_expr()
-        .map_err(|e| {
-            miette::Report::from(e)
-                .with_source_code(miette::NamedSource::new("literal", content.to_string()))
-        })
+        .map_err(|e| miette::Report::from(e).with_source_code(crate::source("literal", content)))
         .unwrap()
     {
         last = engine.global().eval(e)?;
@@ -35,8 +33,7 @@ macro_rules! eval_expr {
         let content = stringify!($($tt)*);
         $crate::testing::eval_str(std::rc::Rc::clone(&$engine), content)
             .map_err(|e| {
-                miette::Report::from(e)
-                    .with_source_code(miette::NamedSource::new("literal", content.to_string()))
+                e.into_report("literal", content)
             })
             .unwrap()
     }};

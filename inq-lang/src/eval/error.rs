@@ -175,6 +175,10 @@ impl From<miette::Report> for EvalError {
 }
 
 impl EvalError {
+    pub fn into_report(self, name: impl Into<String>, source: impl Into<String>) -> miette::Report {
+        miette::Report::from(self).with_source_code(crate::source(name, source))
+    }
+
     pub fn custom(span: impl Into<Span>, message: impl Into<String>) -> Self {
         Self::Custom {
             message: message.into(),

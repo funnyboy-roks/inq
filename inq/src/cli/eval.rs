@@ -1,5 +1,5 @@
 use inq_lang::{Parser, eval::value::ValueRef};
-use miette::{Context, IntoDiagnostic, NamedSource};
+use miette::{Context, IntoDiagnostic};
 
 use crate::{cli::EvalCommand, config::Config, script, state::State};
 
@@ -27,7 +27,7 @@ pub fn run(cmd: EvalCommand, _config: Config, _state: &mut State) -> miette::Res
         Err(e) => {
             eprintln!(
                 "{:?}",
-                e.with_source_code(NamedSource::new("literal", file))
+                e.with_source_code(inq_lang::source("literal", file))
             );
             std::process::exit(1);
         }

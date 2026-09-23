@@ -1,7 +1,7 @@
 use clap::Parser;
 
 use inq::{cli::Cli, run};
-use miette::{IntoDiagnostic, NamedSource};
+use miette::IntoDiagnostic;
 use syntect::{
     highlighting::ThemeSet,
     parsing::{SyntaxDefinition, SyntaxSet, SyntaxSetBuilder},
@@ -53,6 +53,5 @@ fn main() -> miette::Result<()> {
         .to_string_lossy()
         .into_owned();
 
-    run(cli, &config_str)
-        .map_err(|m| m.with_source_code(NamedSource::new(name, config_str).with_language("inq")))
+    run(cli, &config_str).map_err(|m| m.with_source_code(inq_lang::source(name, config_str)))
 }

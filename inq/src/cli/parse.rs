@@ -13,7 +13,7 @@ use inq_lang::{
     lex::Lexer,
     parse::{Attribute, Ident, Item, Parser},
 };
-use miette::{IntoDiagnostic, LabeledSpan, NamedSource};
+use miette::{IntoDiagnostic, LabeledSpan};
 use reqwest::{
     Url,
     blocking::{Body, Client, Request},
@@ -106,7 +106,7 @@ pub(crate) fn run(
     let lex = Lexer::new(&content);
 
     let mut parser = Parser::new(lex).map_err(|e| {
-        miette::Report::from(e).with_source_code(NamedSource::new(&file_name, content.to_string()))
+        miette::Report::from(e).with_source_code(inq_lang::source(&file_name, content))
     })?;
 
     let mut config = Self {
@@ -114,9 +114,10 @@ pub(crate) fn run(
         persisted_vars: Default::default(),
         engine: make_engine(),
     };
-    while let Some(item) = parser.take_item().map_err(|e| {
-        miette::Report::from(e).with_source_code(NamedSource::new(&file_name, content.to_string()))
-    })? {
+    while let Some(item) = parser
+        .take_item()
+        .map_err(|e| e.into_report(file_name, content))?
+    {
         match item {
             Item::Variable(v) => {
                 if v.attributes.contains(&Attribute::Persist) {
@@ -157,7 +158,7 @@ pub(crate) fn run(
                     "Argument `{}` is required",
                     arg.name
                 }
-                .with_source_code(NamedSource::new(&file_name, content.to_string()))
+                .with_source_code(inq_lang::source(&file_name, content.to_string()))
             );
         };
 
@@ -178,18 +179,14 @@ pub(crate) fn run(
         }));
         let scope = eval_scope.make_child();
         scope.set_special(Special::Request(ValueRef::from_ref(request_value.clone())));
-        scope.eval(before.into()).map_err(|e| {
-            miette::Report::from(e)
-                .with_source_code(NamedSource::new(&file_name, content.to_string()))
-        })?;
+        scope
+            .eval(before.into())
+            .map_err(|e| e.into_report(&file_name, content))?;
 
         request = request_value.borrow().clone().into();
     }
 
-    let client = Client::builder()
-        //
-        .build()
-        .unwrap();
+    let client = Client::builder().build().unwrap();
 
     dbg!(&request);
 
