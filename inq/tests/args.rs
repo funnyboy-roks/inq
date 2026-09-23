@@ -145,3 +145,85 @@ fn named_short_eq() {
 
     mock.assert();
 }
+
+#[test]
+fn duplicated_named() {
+    let tempdir = TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let config = format!(r#"let BASE_URL = "{}";"#, server.url())
+        + stringify! {
+            route test(arg = "default") => GET "/test/${arg}"
+                before {
+                    print(request.url);
+                }
+                after {
+                    assert(response.status == 200);
+                }
+        };
+    eprintln!("{}", config);
+
+    let mock = server.mock("GET", "/test/named1").create();
+
+    let cli = Cli::parse_from(["inq", "r", "test", "-a=arg=named1", "-a=arg=named2"]);
+    let err = exec(tempdir.path(), cli, config).unwrap_err();
+    assert!(err.to_string().contains("specified twice")); // best assertion is by to_string here :/
+
+    mock.expect(0);
+}
+
+#[test]
+fn duplicated_pos_and_named() {
+    let tempdir = TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let config = format!(r#"let BASE_URL = "{}";"#, server.url())
+        + stringify! {
+            route test(arg = "default") => GET "/test/${arg}"
+                before {
+                    print(request.url);
+                }
+                after {
+                    assert(response.status == 200);
+                }
+        };
+    eprintln!("{}", config);
+
+    let mock = server.mock("GET", "/test/named1").create();
+
+    let cli = Cli::parse_from([
+        "inq",
+        "r",
+        "test",
+        "positional",
+        "-a=arg=named1",
+        "-a=arg=named2",
+    ]);
+    let err = exec(tempdir.path(), cli, config).unwrap_err();
+    assert!(err.to_string().contains("specified twice")); // best assertion is by to_string here :/
+
+    mock.expect(0);
+}
+
+#[test]
+fn missing_required() {
+    let tempdir = TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let config = format!(r#"let BASE_URL = "{}";"#, server.url())
+        + stringify! {
+            route test(arg) => GET "/test/${arg}"
+                before {
+                    print(request.url);
+                }
+                after {
+                    assert(response.status == 200);
+                }
+        };
+    eprintln!("{}", config);
+
+    let mock = server.mock("GET", "/test/named1").create();
+
+    let cli = Cli::parse_from(["inq", "r", "test"]);
+    let err = exec(tempdir.path(), cli, config).unwrap_err();
+    assert!(err.to_string().contains("required")); // best assertion is by to_string here :/
+
+    mock.expect(0);
+}
