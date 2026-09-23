@@ -26,22 +26,59 @@ fn list_routes(config: Config) -> miette::Result<()> {
         .iter()
         .map(|r| r.name.to_string().len())
         .max()
-        .expect("At least one route is defined");
+        .expect("At least one route is defined")
+        .max("Name".len());
     let method_len = config
         .routes
         .iter()
         .map(|r| r.method.as_str().len())
         .max()
-        .expect("At least one route is defined");
+        .expect("At least one route is defined")
+        .max("Method".len());
+    let args = config
+        .routes
+        .iter()
+        .map(|r| {
+            format!(
+                "{}",
+                r.args
+                    .iter()
+                    .map(|a| a.name.as_istr().to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+        .collect::<Vec<_>>();
 
-    for route in &config.routes {
+    let args_len = args.iter().map(|a| a.len()).max().unwrap_or_default() + 2;
+
+    {
         use owo_colors::OwoColorize as _;
         println!(
-            "{:<name_len$}  {:<method_len$}  {}",
-            route.name.to_string().blue().bold(),
-            route.method.as_str().yellow(),
-            route.endpoint.green()
+            "{:<name_len$}{}  {:<method_len$}  {}",
+            "Name".blue().bold(),
+            if args_len != 0 {
+                format!("({})", "Args".magenta())
+            } else {
+                String::new()
+            },
+            "Method".yellow().bold(),
+            "Endpoint".green().bold(),
         );
+        for (route, args) in config.routes.iter().zip(args) {
+            print!("{:>name_len$}", route.name.to_string().blue(),);
+            if route.args.is_empty() {
+                print!("{:>args_len$}", "");
+            } else {
+                print!("({})", args.magenta());
+            }
+            print!(
+                "  {:<method_len$}  {}",
+                route.method.as_str().yellow(),
+                route.endpoint.green()
+            );
+            println!();
+        }
     }
 
     Ok(())
