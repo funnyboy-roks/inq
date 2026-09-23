@@ -3,6 +3,9 @@ name = "inq-lang"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+testing = []
+
 [dependencies]
 miette = { version = "7.6.0", features = ["fancy"] }
 thiserror = "2.0.20"
@@ -10,3 +13,6 @@ phf = { version = "0.14.0", features = ["macros"] }
 derive_more = { version = "2.1.1", features = ["full"] }
 indexmap = "2.14.2"
 serde = { version = "1.0.228", features = ["derive"] }
+
+[dev-dependencies]
+inq-lang = { path = "./", features = ["testing"] }

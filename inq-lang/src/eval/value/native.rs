@@ -182,6 +182,7 @@ impl Value for Float {
             };
         }
         proxy!(floor ceil round trunc fract sqrt exp exp2 ln log2 log10 cbrt sin cos);
+        registry.register_method::<fn(&_) -> _>("to_int", |&this| this as Int);
 
         registry.register_static_method("parse", |ctx, s: IStr| {
             Self::from_str(&s)
@@ -289,33 +290,25 @@ impl Value for IStr {
         registry.register_method::<fn(_, &_, _) -> _>(
             "substring",
             |ctx, this, (start, end): (i64, i64)| {
-                let nstart = if start < 0 {
-                    this.len() as i64 + start
-                } else {
-                    start
-                };
-                let nend = if end < 0 {
-                    this.len() as i64 + end
-                } else {
-                    end
-                };
+                let nstart = normalise_index(start, this.len())?;
+                let nend = normalise_index(end, this.len())?;
 
-                if nstart < 0 || nstart > this.len() as i64 {
+                let Some(start) = nstart else {
                     return Err(ctx.error(format!(
                         "Start {} out of bounds for length {}",
                         start,
                         this.len()
                     )));
-                }
-                if nend < 0 || nend > this.len() as i64 {
+                };
+                let Some(end) = nend else {
                     return Err(ctx.error(format!(
                         "End {} out of bounds for length {}",
                         end,
                         this.len()
                     )));
-                }
+                };
 
-                Ok(this[start as usize..end as usize].intern())
+                Ok(this[start..end].intern())
             },
         );
         registry.register_method::<fn(&_) -> _>("chars", |this| {
@@ -339,6 +332,13 @@ impl Value for IStr {
 /// Array
 #[derive(Debug, Clone)]
 pub struct Array(RefCell<Vec<ValueRef>>);
+
+impl<T: Value + PartialEq> PartialEq<&[T]> for Array {
+    fn eq(&self, other: &&[T]) -> bool {
+        let this = self.0.borrow();
+        this.len() == other.len() && this.iter().zip(other.iter()).all(|(l, r)| l == r)
+    }
+}
 
 impl<V: Into<ValueRef>> FromIterator<V> for Array {
     fn from_iter<T: IntoIterator<Item = V>>(iter: T) -> Self {

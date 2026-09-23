@@ -150,7 +150,7 @@ impl ValueRef {
         }
     }
 
-    pub fn downcast_ref<T: Value + Clone>(&self) -> Option<&T> {
+    pub fn downcast_ref<T: Value>(&self) -> Option<&T> {
         self.value().downcast_ref()
     }
 
@@ -208,6 +208,12 @@ impl ValueRef {
             ValueRefInner::Dyn(d) => ValueRefInner::Dyn(d.snapshot()),
         };
         Self { inner }
+    }
+}
+
+impl<V: Value + PartialEq> PartialEq<V> for ValueRef {
+    fn eq(&self, other: &V) -> bool {
+        self.downcast_ref::<V>().is_some_and(|d| d == other)
     }
 }
 
