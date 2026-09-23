@@ -187,6 +187,9 @@ impl Value for Float {
             Self::from_str(&s)
                 .map_err(|e| ctx.error(format!("Cannot parse {:?} as Float: {}", s, e)))
         });
+        registry.register_static_field("inf", || Float::INFINITY.into());
+        registry.register_static_field("neg_inf", || Float::NEG_INFINITY.into());
+        registry.register_static_field("nan", || Float::NAN.into());
     }
 }
 

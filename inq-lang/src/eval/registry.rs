@@ -437,7 +437,9 @@ pub(crate) struct AnyRegistry {
     method_fallback: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
     #[debug("{:?}", methods.keys().collect::<Vec<_>>())]
     static_methods: HashMap<&'static str, Rc<dyn Function>>,
-    static_method_fallback: fn(CallContext<FnCtx>, Ident, VarArgs) -> Result<ValueRef, EvalError>,
+    static_method_fallback: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
+    static_fields: HashMap<&'static str, fn() -> ValueRef>,
+    static_field_fallback: fn(CallContext, Ident) -> EvalResult<ValueRef>,
     fields: HashMap<&'static str, Field>,
     #[debug("{}", if call.is_some() { "Some(..)" } else { "None" })]
     pub(crate) field_get_fallback: Rc<dyn FieldGetFallback>,
@@ -487,6 +489,14 @@ impl AnyRegistry {
         }
     }
 
+    pub(crate) fn call_static_field(&self, ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
+        if let Some(func) = self.static_fields.get(&*field.inner) {
+            Ok(func())
+        } else {
+            (self.static_field_fallback)(ctx, field)
+        }
+    }
+
     pub(crate) fn get_field(&self, inner: &'_ str) -> Option<&Field> {
         self.fields.get(inner)
     }
@@ -522,6 +532,8 @@ impl<T: Value> Registry<T> {
                 method_fallback: unknown_method,
                 static_methods: Default::default(),
                 static_method_fallback: unknown_method,
+                static_fields: Default::default(),
+                static_field_fallback: UnknownField::unknown,
                 fields: Default::default(),
                 field_get_fallback: Rc::new(UnknownField),
                 field_set_fallback: Rc::new(UnknownField),
@@ -576,6 +588,10 @@ impl<T: Value> Registry<T> {
         func: fn(CallContext<FnCtx>, Ident, VarArgs) -> EvalResult<ValueRef>,
     ) {
         self.inner.static_method_fallback = func;
+    }
+
+    pub fn register_static_field(&mut self, name: &'static str, func: fn() -> ValueRef) {
+        self.inner.static_fields.insert(name, func);
     }
 
     pub fn register_call<F>(&mut self, func: F)

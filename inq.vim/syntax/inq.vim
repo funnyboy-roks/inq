@@ -38,9 +38,6 @@ syn match inqNumber '[-+]\?0b[01][01_]*'    display
 syn match inqNumber '[-+]\?0o\o\%(\o\|_\)*' display
 syn match inqNumber '[-+]\?0x\x\%(\x\|_\)*' display
 
-" Keyword number #inf, #-inf, #nan
-" syn match inqNumber '#\%(-\?inf\|nan\)' contained display
-
 " Floating point numbers (containing '.' and/or 'E'/'e')
 syn match inqNumber '[-+]\?\d[[:digit:]_]*\%(\.\d[[:digit:]_]*\)\?\%([eE][-+]\?\d[[:digit:]_]*\)\?' display
 
@@ -53,7 +50,6 @@ syn region inqString start='"'           end='"'      skip='\\\\\|\\"'          
 syn region inqBlock start='{' end='}' transparent fold
 
 
-" syn region inqFuncArgs start='(' end=')' display
 syn match inqFuncName "\%([^[:cntrl:][:space:][:punct:][:digit:]]\|_\)\%([^[:cntrl:][:punct:][:space:]]\|_\)*("he=e-1,me=e-1 display
 syn match inqRouteNameSep '/' display contained
 syn match inqRouteName    "\w\(\%([^[:cntrl:][:space:][:punct:][:digit:]]\|_\)\%([^[:cntrl:][:punct:][:space:]]\|_\|/\)*\)*" display contained contains=inqRouteNameSep
@@ -64,8 +60,6 @@ syn region inqStringInterpolate matchgroup=inqInterpolated start='${' end='}' di
 syn region inqAttribute start='#\[' end='\]' display
 
 syn keyword inqBaseUrl BASE_URL
-
-" syn region inqChildren start="{" end="}" contains=inqString,inqJsonString,inqNumber,inqNode,inqBool,inqNull,inqComment,inqCommentBlock
 
 let b:current_syntax = "inq"
 

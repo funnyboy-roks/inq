@@ -53,5 +53,7 @@ impl Value for TypeValue {
             let this = ctx.self_ref.unwrap::<Self>();
             this.reg.call_static_method(ctx, method, args)
         });
+        registry
+            .register_field_get_fallback(|ctx, this, field| this.reg.call_static_field(ctx, field));
     }
 }

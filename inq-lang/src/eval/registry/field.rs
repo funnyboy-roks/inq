@@ -97,19 +97,22 @@ impl<T: Value> FieldSetFallback for fn(CallContext, &T, Ident, ValueRef) {
 }
 
 pub(super) struct UnknownField;
-impl FieldGetFallback for UnknownField {
-    fn get(&self, ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
+impl UnknownField {
+    pub(super) fn unknown(ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
         Err(EvalError::UnknownField {
             ty: ctx.self_ref.type_name_of().into(),
             field: field.clone(),
         })
     }
 }
+impl FieldGetFallback for UnknownField {
+    fn get(&self, ctx: CallContext, field: Ident) -> EvalResult<ValueRef> {
+        Self::unknown(ctx, field)
+    }
+}
 impl FieldSetFallback for UnknownField {
     fn set(&self, ctx: CallContext, field: Ident, _value: ValueRef) -> EvalResult<()> {
-        Err(EvalError::UnknownField {
-            ty: ctx.self_ref.type_name_of().into(),
-            field: field.clone(),
-        })
+        Self::unknown(ctx, field)?;
+        Ok(())
     }
 }
