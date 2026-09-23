@@ -13,7 +13,7 @@ fn default() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -37,7 +37,7 @@ fn positional() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -61,7 +61,7 @@ fn named_long_space() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -85,7 +85,7 @@ fn named_long_eq() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -109,7 +109,7 @@ fn named_short_space() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -133,7 +133,7 @@ fn named_short_eq() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -157,7 +157,7 @@ fn duplicated_named() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -182,7 +182,7 @@ fn duplicated_pos_and_named() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);
@@ -214,7 +214,7 @@ fn missing_required() {
                     print(request.url);
                 }
                 after {
-                    assert(response.status == 200);
+                    assert_success();
                 }
         };
     eprintln!("{}", config);

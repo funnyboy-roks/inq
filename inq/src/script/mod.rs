@@ -4,7 +4,7 @@ use bytes::Bytes;
 use inq_lang::{
     IStr,
     eval::{
-        Engine, EvalResult,
+        Engine, EvalResult, Special,
         registry::{FunctionValue, VarArgs},
         value::ValueRef,
     },
@@ -175,6 +175,23 @@ pub fn base_engine() -> Rc<Engine> {
                 Ok(ValueRef::null())
             } else {
                 Err(ctx.error_args("Assertion failed", [(0, "Expected to be true")]))
+            }
+        }),
+        true,
+    );
+    global.set_variable(
+        "assert_success",
+        FunctionValue::new(|ctx, ()| match ctx.scope().special() {
+            None | Some(Special::None) | Some(Special::Request(_)) => {
+                Err(ctx.error("`assert_success` may only be used in after block"))
+            }
+            Some(Special::Response(r)) => {
+                let res = r.downcast_rc::<ResponseValue>().expect("we set this type");
+                if res.status().is_success() {
+                    Ok(())
+                } else {
+                    Err(ctx.error(format!("Expected successful status, got {}", res.status())))
+                }
             }
         }),
         true,

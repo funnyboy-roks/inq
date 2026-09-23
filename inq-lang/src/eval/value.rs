@@ -9,7 +9,7 @@ use std::{
 use crate::{
     IStr, Span,
     eval::{
-        EvalError, EvalResult,
+        EvalError, EvalResult, Scope,
         registry::{FnCtx, Registry},
         value::{
             native::{Float, Int, Null},
@@ -216,14 +216,16 @@ pub struct CallContext<T = ()> {
     /// The span that makes the most sense for a single error label
     pub(crate) span: Span,
     pub(crate) self_ref: ValueRef,
+    pub(crate) scope: Rc<Scope>,
     ext: T,
 }
 
 impl CallContext<()> {
-    pub fn new(span: Span, self_ref: ValueRef) -> Self {
+    pub fn new(span: Span, self_ref: ValueRef, scope: Rc<Scope>) -> Self {
         Self {
             span,
             self_ref,
+            scope,
             ext: (),
         }
     }
@@ -234,10 +236,15 @@ impl<T> CallContext<T> {
         self.span
     }
 
-    pub fn new_ext(span: Span, self_ref: ValueRef, ext: T) -> Self {
+    pub fn scope(&self) -> Rc<Scope> {
+        self.scope.clone()
+    }
+
+    pub fn new_ext(span: Span, self_ref: ValueRef, scope: Rc<Scope>, ext: T) -> Self {
         Self {
             span,
             self_ref,
+            scope,
             ext,
         }
     }

@@ -170,7 +170,7 @@ impl Scope {
         self.special.replace(special);
     }
 
-    fn special(&self) -> Option<Special> {
+    pub fn special(&self) -> Option<Special> {
         match &*self.special.borrow() {
             Special::None => self.parent.as_deref().and_then(Scope::special),
             spec => Some(spec.clone()),
@@ -272,7 +272,7 @@ impl Scope {
                         operand: operand.type_name_of().into(),
                     });
                 };
-                unary_op.apply(CallContext::new(op_span, operand))
+                unary_op.apply(CallContext::new(op_span, operand, self.clone()))
             }
             Ast::InfixOp {
                 op,
@@ -298,7 +298,10 @@ impl Scope {
                             let reg = self.engine.get_type(&obj, value_span)?;
                             if let Some(field) = reg.get_field(&name.inner) {
                                 if let Some(ref setter) = field.setter {
-                                    setter.set(value, CallContext::new(name.span, obj))?;
+                                    setter.set(
+                                        value,
+                                        CallContext::new(name.span, obj, self.clone()),
+                                    )?;
                                 } else {
                                     return Err(EvalError::ReadonlyField {
                                         ty: value.type_name_of().into(),
@@ -307,7 +310,7 @@ impl Scope {
                                 }
                             } else {
                                 reg.field_set_fallback.set(
-                                    CallContext::new(name.span, obj),
+                                    CallContext::new(name.span, obj, self.clone()),
                                     name,
                                     value,
                                 )?;
@@ -342,7 +345,7 @@ impl Scope {
                             setter.set(
                                 index,
                                 rhs,
-                                CallContext::new_ext(span, value.clone(), ctx),
+                                CallContext::new_ext(span, value.clone(), self.clone(), ctx),
                             )?;
 
                             Ok(ValueRef::null())
@@ -428,7 +431,11 @@ impl Scope {
                     });
                 };
 
-                binop.apply(lhs.clone(), rhs, CallContext::new(op_span, lhs))
+                binop.apply(
+                    lhs.clone(),
+                    rhs,
+                    CallContext::new(op_span, lhs, self.clone()),
+                )
             }
             Ast::PostfixOp { op, operand, .. } => {
                 let span = operand.span;
@@ -461,10 +468,10 @@ impl Scope {
                 let span = field.span;
                 let reg = self.engine.get_type(&obj, value_span)?;
                 if let Some(field) = reg.get_field(&field.inner) {
-                    field.getter.get(CallContext::new(span, obj))
+                    field.getter.get(CallContext::new(span, obj, self.clone()))
                 } else {
                     reg.field_get_fallback
-                        .get(CallContext::new(field.span, obj), field)
+                        .get(CallContext::new(field.span, obj, self.clone()), field)
                 }
             }
             Ast::MethodCall {
@@ -483,7 +490,8 @@ impl Scope {
 
                 let span = method.span;
                 let reg = self.engine.types().get(&value, span)?;
-                let ctx = CallContext::new_ext(span, value, registry::FnCtx { arg_spans });
+                let ctx =
+                    CallContext::new_ext(span, value, self.clone(), registry::FnCtx { arg_spans });
                 reg.call_method(ctx, method, VarArgs::new(eval_args))
             }
             Ast::Index {
@@ -500,7 +508,7 @@ impl Scope {
                 let idx = self.engine.get_index(&value, &index, span)?;
                 let v = idx.getter.get(
                     index.clone(),
-                    CallContext::new_ext(span, value.clone(), ctx_ext),
+                    CallContext::new_ext(span, value.clone(), self.clone(), ctx_ext),
                 )?;
 
                 if let Some(v) = v {
@@ -527,7 +535,12 @@ impl Scope {
                 if let Some(call) = &reg.call {
                     call.call(
                         VarArgs::new(eval_args),
-                        CallContext::new_ext(span, func.clone(), registry::FnCtx { arg_spans }),
+                        CallContext::new_ext(
+                            span,
+                            func.clone(),
+                            self.clone(),
+                            registry::FnCtx { arg_spans },
+                        ),
                     )
                 } else {
                     Err(EvalError::NotCallable {
