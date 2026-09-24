@@ -7,12 +7,13 @@ edition = "2024"
 testing = []
 
 [dependencies]
-miette = { version = "7.6.0", features = ["fancy"] }
-thiserror = "2.0.20"
+miette.workspace = true
+thiserror.workspace = true
+derive_more.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+
 phf = { version = "0.14.0", features = ["macros"] }
-derive_more = { version = "2.1.1", features = ["full"] }
-indexmap = "2.14.2"
-serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
 inq-lang = { path = "./", features = ["testing"] }

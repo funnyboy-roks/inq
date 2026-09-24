@@ -1,3 +1,10 @@
 [workspace]
 resolver = "2"
 members = ["inq", "inq-lang"]
+
+[workspace.dependencies]
+miette = { version = "7.6.0", features = ["fancy", "syntect-highlighter"] }
+thiserror = "2.0.20"
+derive_more = { version = "2.1.1", features = ["full"] }
+indexmap = "2.14.2"
+serde = { version = "1.0.228", features = ["derive"] }
