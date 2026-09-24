@@ -118,8 +118,32 @@ impl Value for Int {
                 Ok(to_string_radix(this, radix))
             },
         );
-        registry.register_static_method("parse", |ctx, s: IStr| {
-            Int::from_str(&s).map_err(|e| ctx.error(format!("Cannot parse {:?} as Int: {}", s, e)))
+        registry.register_static_method("parse", |ctx, args: VarArgs| {
+            if args.len() != 1 && args.len() != 2 {
+                return args.error(&ctx, None, ["String", "Int | Null"]);
+            }
+
+            let Some(s) = args.inner[0].downcast::<IStr>() else {
+                return args.error(&ctx, Some(1), ["String", "Int | Null"]);
+            };
+
+            let radix = if args.len() == 2 {
+                let Some(radix) = args.inner[1].downcast::<Int>() else {
+                    return args.error(&ctx, Some(1), ["String", "Int | Null"]);
+                };
+                radix
+            } else {
+                10
+            };
+
+            if !(2..=36).contains(&radix) {
+                return Err(
+                    ctx.error_arg(1, format!("radix must be in range [2, 36], got {}", radix))
+                );
+            }
+
+            Int::from_str_radix(&s, radix as _)
+                .map_err(|e| ctx.error_arg(0, format!("Cannot parse {:?} as Int: {}", s, e)))
         });
 
         registry.register_method::<fn(&_) -> _>("to_float", |&this| this as Float);

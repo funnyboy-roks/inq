@@ -88,13 +88,18 @@ impl VarArgs {
         Some(r.clone())
     }
 
-    fn error<C, T>(
+    pub(crate) fn error<T>(
         &self,
-        ctx: &CallContext<C>,
+        ctx: &CallContext<FnCtx>,
+        index: Option<usize>,
         expected: impl IntoIterator<Item = impl Into<String>>,
     ) -> EvalResult<T> {
         Err(EvalError::InvalidArgs {
-            span: ctx.span,
+            span: if let Some(i) = index {
+                ctx.arg_spans[i]
+            } else {
+                ctx.span()
+            },
             got: self.inner.iter().map(|a| a.type_name_of().into()).collect(),
             expected: expected.into_iter().map(Into::into).collect(),
         })
@@ -115,12 +120,12 @@ impl<V: Value + Clone> FromVarArgs for V {
     fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected: [Cow<'static, str>; _] = [V::type_name()];
         if varargs.len() != 1 {
-            return varargs.error(ctx, expected);
+            return varargs.error(ctx, None, expected);
         }
 
         let x = varargs.shift().expect("checked above");
         let Some(v) = x.value().downcast_ref::<V>() else {
-            return varargs.error(ctx, expected);
+            return varargs.error(ctx, Some(0), expected);
         };
 
         Ok(v.clone())
@@ -130,14 +135,14 @@ impl<V: Value + Clone> FromVarArgs for Option<V> {
     fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected: [Cow<'static, str>; _] = [V::type_name()];
         if varargs.len() > 1 {
-            return varargs.error(ctx, expected);
+            return varargs.error(ctx, None, expected);
         }
 
         let Some(x) = varargs.shift() else {
             return Ok(None);
         };
         let Some(v) = x.value().downcast_ref::<V>() else {
-            return varargs.error(ctx, expected);
+            return varargs.error(ctx, Some(0), expected);
         };
 
         Ok(Some(v.clone()))
@@ -147,7 +152,7 @@ impl FromVarArgs for ValueRef {
     fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
         let expected = [Cow::Borrowed("Any")];
         if varargs.len() != 1 {
-            return varargs.error(ctx, expected);
+            return varargs.error(ctx, None, expected);
         }
 
         Ok(varargs.shift().expect("checked above"))
@@ -168,7 +173,7 @@ macro_rules! impl_varargs {
             fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
                 let expected: [Cow<'static, str>; _] = [$(impl_varargs!(# $gen => Cow::Borrowed("Any")),)*];
                 if varargs.len() != count!($gen0 $($gen)*) {
-                    return varargs.error(ctx, expected);
+                    return varargs.error(ctx, None, expected);
                 }
 
                 Ok((
@@ -181,18 +186,21 @@ macro_rules! impl_varargs {
     (@ $($gen: ident)*) => {
         impl<$($gen: Value + Clone,)*> FromVarArgs for ($($gen,)*) {
             #[allow(unused_mut)]
+            #[allow(unused)]
             fn from_varargs(ctx: &CallContext<FnCtx>, mut varargs: VarArgs) -> EvalResult<Self> {
                 let expected: [Cow<'static, str>; _] = [$($gen::type_name()),*];
                 if varargs.len() != count!($($gen)*) {
-                    return varargs.error(ctx, expected);
+                    return varargs.error(ctx, None, expected);
                 }
 
+                let mut index = 0;
                 $(
                     let x = varargs.shift().expect("checked above");
                     #[allow(non_snake_case)]
                     let Some($gen) = x.downcast::<$gen>() else {
-                        return varargs.error(ctx, expected);
+                        return varargs.error(ctx, Some(index), expected);
                     };
+                    index += 1;
                 )*
 
                 Ok(($($gen,)*))

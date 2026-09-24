@@ -70,5 +70,9 @@ fn parse() {
     assert_value!(e, Int.parse("-42") => -42);
     assert_value!(e, Int.parse("+49") => 49);
 
+    assert_value!(e, Int.parse("42", 16)  => 0x42);
+    assert_value!(e, Int.parse("-fa", 16) => -0xfa);
+    assert_value!(e, Int.parse("+9a", 16) => 0x9a);
+
     eval_expr!(try e, Int.parse("this is not a valid int")).unwrap_err();
 }
