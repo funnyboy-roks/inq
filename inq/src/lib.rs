@@ -17,6 +17,7 @@ mod util;
 pub fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let config = Config::load(config_str)?;
     let mut state = State::load(&cli.config)?;
+    state.apply_variables(&config)?;
 
     match cli.subcmd {
         SubCmd::Route(cmd) => cli::route::run(cmd, config, &mut state)?,

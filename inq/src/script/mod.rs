@@ -2,7 +2,7 @@ use std::{fmt::Display, rc::Rc};
 
 use bytes::Bytes;
 use inq_lang::{
-    IStr,
+    IStr, StringExt,
     eval::{
         Engine, EvalResult, Special,
         registry::{FunctionValue, VarArgs},
@@ -10,6 +10,7 @@ use inq_lang::{
     },
 };
 use miette::{IntoDiagnostic, bail};
+use rustyline::DefaultEditor;
 
 use crate::{
     decode::{decode_brotli, decode_deflate, decode_gzip, decode_zstd},
@@ -112,6 +113,18 @@ impl ScriptBody {
     }
 }
 
+fn prompt(prompt: &str) -> miette::Result<String> {
+    let mut rl = DefaultEditor::new().into_diagnostic()?;
+    use owo_colors::OwoColorize as _;
+    rl.readline(
+        &(
+            // format!("{}: ", prompt),
+            format!("{}: ", prompt.blue().bold())
+        ),
+    )
+    .into_diagnostic()
+}
+
 pub fn base_engine() -> Rc<Engine> {
     let engine = Engine::new();
 
@@ -140,6 +153,14 @@ pub fn base_engine() -> Rc<Engine> {
                 .map(IStr::from)
                 .map(ValueRef::new)
                 .unwrap_or_else(ValueRef::null)
+        }),
+        true,
+    );
+    global.set_variable(
+        "prompt",
+        FunctionValue::new(|ctx, text: IStr| {
+            let e = prompt(&text).map_err(|e| ctx.error(format!("Error prompting: {}", e)))?;
+            Ok(e.intern())
         }),
         true,
     );

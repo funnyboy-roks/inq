@@ -2,7 +2,6 @@ use std::{
     collections::HashMap,
     io::BufWriter,
     path::{Path, PathBuf},
-    rc::Rc,
 };
 
 use chrono::{DateTime, Utc};
@@ -66,7 +65,7 @@ impl State {
         Ok(this)
     }
 
-    pub fn apply_variables(&self, config: Rc<Config>) -> miette::Result<()> {
+    pub fn apply_variables(&self, config: &Config) -> miette::Result<()> {
         for v in &config.persisted_vars {
             if let Some(var) = self.variables.get(&v.as_istr()) {
                 assert!(var.expires_at.is_none_or(|e| e > Utc::now()));

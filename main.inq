@@ -4,7 +4,7 @@ let BASE_URL = "http://localhost:$port";
 #[persist]
 let cookie = "";
 #[persist]
-let user = "john";
+let user = prompt("Username");
 #[persist]
 let password = read_text_file("./password").trim();
 
