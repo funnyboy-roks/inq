@@ -26,6 +26,7 @@ pub(crate) mod client;
 pub(crate) mod cookie;
 pub(crate) mod datetime;
 pub(crate) mod duration;
+pub(crate) mod faker;
 pub(crate) mod header;
 pub(crate) mod json;
 pub(crate) mod request;
@@ -139,6 +140,7 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<DurationValue>();
     engine.register_type::<CookieValue>();
     engine.register_type::<DateTimeValue>();
+    engine.register_type::<faker::FakerValue>();
 
     // plugins
     // RandomPackage::new().register_into_engine(&mut engine);
@@ -184,6 +186,7 @@ pub fn base_engine() -> Rc<Engine> {
         "debug",
         FunctionValue::new(|_ctx, s: ValueRef| {
             eprintln!("{:#?}", s.debug());
+            s // allow it to be used like dbg!
         }),
         true,
     );
