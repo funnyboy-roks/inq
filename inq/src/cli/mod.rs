@@ -45,6 +45,9 @@ pub struct CliClientConfig {
     /// NOTE: This flag is ignored on Windows
     #[clap(long)]
     pub interface: Option<String>,
+    /// Whether inq should allow requests to URLs with invalid certs (i.e., self-hosted certs)
+    #[clap(short, long)]
+    pub insecure: bool,
 }
 
 #[derive(Debug, Parser)]

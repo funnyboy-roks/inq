@@ -41,6 +41,7 @@ pub struct ClientConfigInner {
         target_os = "watchos",
     ))]
     interface: Option<IStr>,
+    allow_insecure: bool,
 }
 
 impl From<CliClientConfig> for ClientConfig {
@@ -67,6 +68,7 @@ impl From<CliClientConfig> for ClientConfig {
                 target_os = "watchos",
             ))]
             interface: value.interface.map(Into::into),
+            allow_insecure: value.insecure,
         }
         .into()
     }
@@ -172,6 +174,7 @@ impl Value for ClientConfig {
                 )))]
                 &std::fmt::from_fn(|fmt| write!(fmt, "<disabled>")),
             )
+            .field("allow_insecure", &self.borrow().allow_insecure)
             .finish()
     }
 
@@ -261,6 +264,15 @@ impl Value for ClientConfig {
                     target_os = "watchos",
                 )))]
                 crate::warn!("Interface is not supported on your operating system!");
+                Ok(())
+            },
+        );
+
+        registry.register_field_get_set(
+            "allow_insecure",
+            |_, this| this.borrow().timeout.map(DurationValue),
+            |ctx, this, value: ValueRef| {
+                this.borrow_mut().allow_insecure = value.expect_downcast::<bool>(ctx.span())?;
                 Ok(())
             },
         );
