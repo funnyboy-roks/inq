@@ -1,0 +1,19 @@
+[package]
+name = "inq-lang"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+testing = []
+
+[dependencies]
+miette.workspace = true
+thiserror.workspace = true
+derive_more.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+
+phf = { version = "0.14.0", features = ["macros"] }
+
+[dev-dependencies]
+inq-lang = { path = "./", features = ["testing"] }
