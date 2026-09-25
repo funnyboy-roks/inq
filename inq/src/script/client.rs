@@ -88,6 +88,11 @@ impl From<ClientConfig> for Client {
         builder = builder.timeout(value.timeout);
         builder = builder.connect_timeout(value.connect_timeout);
 
+        if value.allow_insecure {
+            builder = builder.tls_danger_accept_invalid_certs(true);
+            builder = builder.tls_danger_accept_invalid_hostnames(true);
+        }
+
         #[cfg(any(
             target_os = "android",
             target_os = "fuchsia",
