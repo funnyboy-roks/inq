@@ -5,7 +5,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use inq_lang::IStr;
+use inq_lang::{IStr, eval::Variable};
 use miette::{Context, bail};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
@@ -72,7 +72,11 @@ impl State {
                 config
                     .engine
                     .global()
-                    .set_variable(v.as_istr(), var.value.clone(), false);
+                    .declare_variable(Variable::definition_resolved(
+                        v.clone(),
+                        v.span,
+                        var.value.clone().into(),
+                    ));
             }
         }
         Ok(())
@@ -80,14 +84,14 @@ impl State {
 
     pub fn update_variables(&mut self, config: &Config) -> miette::Result<()> {
         for var in &config.persisted_vars {
-            let Some(v) = config
+            let Some((value, span)) = config
                 .engine
                 .global()
-                .get_evaluated_variable(&var.as_istr())?
+                .get_evaluated_variable_with_span(&var.as_istr())?
             else {
                 continue;
             };
-            if let Some(s) = v.downcast::<IStr>() {
+            if let Some(s) = value.downcast::<IStr>() {
                 self.variables.insert(
                     var.as_istr(),
                     PersistedVariable {
@@ -97,7 +101,7 @@ impl State {
                 );
             } else {
                 bail! {
-                    labels = vec![var.span.with_label("Defined here")],
+                    labels = vec![span.with_label("Last value set here")],
                     "Persisted variables must be strings"
                 }
             }

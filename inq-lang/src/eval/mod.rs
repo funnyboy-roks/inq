@@ -19,7 +19,7 @@ pub use scope::*;
 use crate::{
     IStr, Span,
     eval::{
-        registry::{AnyRegistry, Indexer, Registry},
+        registry::{AnyRegistry, FunctionValue, Indexer, Registry},
         value::{
             Value, ValueRef,
             native::{Array, Float, Int, Null, Object},
@@ -96,6 +96,7 @@ impl Engine {
         self.register_type::<bool>();
         self.register_type::<Array>();
         self.register_type::<Object>();
+        self.register_type::<FunctionValue>();
     }
 
     pub fn register_type<V: Value>(self: &Rc<Self>) {
@@ -129,5 +130,151 @@ impl Engine {
                 index: index.type_name_of().into(),
                 span,
             })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use std::assert_matches;
+
+    use crate::{
+        eval::{
+            Engine, EvalError, Variable,
+            lazy::identity_mapper,
+            registry::FunctionValue,
+            value::native::{Int, Null},
+        },
+        eval_expr,
+    };
+
+    #[test]
+    fn variable_declare() {
+        let engine = Engine::new();
+        let v = eval_expr! { engine,
+            let x = 420;
+            x
+        };
+        let n = v.unwrap::<Int>();
+        assert_eq!(n, 420);
+    }
+
+    #[test]
+    fn variable_declare_empty() {
+        let engine = Engine::new();
+        let v = eval_expr! { engine,
+            let x;
+            x
+        };
+        let Null = v.unwrap::<Null>();
+    }
+
+    #[test]
+    fn variable_overwrite() {
+        let engine = Engine::new();
+        let v = eval_expr! { engine,
+            let x = 42;
+            x = 27;
+            x
+        };
+        let n = v.unwrap::<Int>();
+        assert_eq!(n, 27);
+    }
+
+    #[test]
+    fn variable_shadow() {
+        let engine = Engine::new();
+        let v = eval_expr! { engine,
+            let x = 42;
+            let x = 27;
+            x
+        };
+        let n = v.unwrap::<Int>();
+        assert_eq!(n, 27);
+    }
+
+    #[test]
+    fn readonly_variable() {
+        let engine = Engine::new();
+        engine.global().declare_variable(Variable {
+            name: "hello".into(),
+            def: None,
+            value: 42.into(),
+            readonly: true,
+            on_resolve: identity_mapper,
+        });
+        // ensure it's set
+        let v = eval_expr! { engine,
+            hello
+        };
+        assert_eq!(v.unwrap::<Int>(), 42);
+
+        let err = eval_expr! { try engine,
+            hello = 27;
+            hello
+        }
+        .unwrap_err();
+        assert_matches!(err, EvalError::ReadonlyVariable { .. })
+    }
+
+    #[test]
+    fn readonly_variable_shadow() {
+        let engine = Engine::new();
+        engine.global().declare_variable(Variable {
+            name: "hello".into(),
+            def: None,
+            value: 42.into(),
+            readonly: true,
+            on_resolve: identity_mapper,
+        });
+        // ensure it's set
+        let v = eval_expr! { engine,
+            hello
+        };
+        assert_eq!(v.unwrap::<Int>(), 42);
+
+        let v = eval_expr! { engine,
+            let hello = 27;
+            hello
+        };
+        assert_eq!(v.unwrap::<Int>(), 27);
+    }
+
+    #[test]
+    fn readonly_function() {
+        let engine = Engine::new();
+        engine
+            .global()
+            .declare_function("test", |_ctx, ()| unimplemented!() as ());
+        // ensure it's set
+        let v = eval_expr! { engine,
+            test
+        };
+        v.unwrap::<FunctionValue>();
+
+        let err = eval_expr! { try engine,
+            test = 42;
+            test
+        }
+        .unwrap_err();
+        assert_matches!(err, EvalError::ReadonlyVariable { .. })
+    }
+
+    #[test]
+    fn readonly_function_shadow() {
+        let engine = Engine::new();
+        engine
+            .global()
+            .declare_function("test", |_ctx, ()| unimplemented!() as ());
+        // ensure it's set
+        let v = eval_expr! { engine,
+            test
+        };
+        v.unwrap::<FunctionValue>();
+
+        let v = eval_expr! { engine,
+            let hello = 27;
+            hello
+        };
+        assert_eq!(v.unwrap::<Int>(), 27);
     }
 }

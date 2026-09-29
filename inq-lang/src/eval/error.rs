@@ -61,6 +61,13 @@ pub enum EvalError {
         #[label]
         ident: Ident,
     },
+    #[error("Readonly Variable: {}", call)]
+    ReadonlyVariable {
+        #[label = "Used here"]
+        call: Ident,
+        #[label = "Defined here"]
+        definition: Option<Span>,
+    },
     #[error(
         "Invalid argments, expected {}, got {}",
         DisplayVec(expected),

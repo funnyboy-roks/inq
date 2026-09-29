@@ -52,6 +52,10 @@ impl Config {
                         self.engine.global().add_mapped_variable(
                             v,
                             |span: Span, value: ValueRef| {
+                                if value.is::<UrlValue>() {
+                                    return Ok(value);
+                                }
+
                                 let s = value.expect_downcast::<IStr>(span)?;
                                 let url = Url::from_str(&s).map_err(|e| {
                                     EvalError::custom(span, format!("Unable to parse url: {}", e))

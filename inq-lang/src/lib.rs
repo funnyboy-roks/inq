@@ -13,7 +13,7 @@ pub mod testing;
 
 pub use lex::Method;
 use miette::NamedSource;
-pub use parse::{Attribute, Ident, Item, Parser, Path, Route, RouteArg, Variable};
+pub use parse::{Attribute, Ident, Item, Parser, Path, Route, RouteArg, VariableItem};
 pub use span::Span;
 pub use string::{IStr, StringExt};
 

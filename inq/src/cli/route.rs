@@ -2,7 +2,7 @@ use std::{ops::Deref, rc::Rc, str::FromStr, time::Instant};
 
 use inq_lang::{
     IStr, Route, StringExt,
-    eval::{Scope, Special, value::ValueRef},
+    eval::{Scope, Special, Variable, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use reqwest::Url;
@@ -93,7 +93,8 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
                 "Unable to parse url: {}", e
             }
         })?
-    } else if let Some(base_url_lazy) = config.engine.global().get_lazy_variable("BASE_URL")? {
+    } else if let Some(base_url) = config.engine.global().get_variable("BASE_URL") {
+        let base_url_lazy = base_url.value;
         let span = base_url_lazy.value_span();
         let mut full_url = base_url_lazy.get()?.expect_downcast::<UrlValue>(span)?.0;
         let (path, query) = url
@@ -161,7 +162,11 @@ fn handle_cli(scope: &Rc<Scope>, route_cmd: &RouteCommand, route: &Route) -> mie
             }
         };
 
-        scope.set_variable_ref(arg.name.as_ref(), value, true);
+        scope.declare_variable(Variable::definition_resolved(
+            arg.name.clone(),
+            arg.name.span,
+            value,
+        ));
     }
 
     Ok(())

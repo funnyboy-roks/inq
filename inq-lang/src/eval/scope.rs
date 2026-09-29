@@ -9,13 +9,13 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
-    IStr, Ident, Variable,
+    IStr, Ident, Span, VariableItem,
     eval::{
         Engine, EvalError, EvalResult,
-        lazy::{LazyValueRef, VariableMapper},
-        registry::{self, BinOp, UnaryOp, VarArgs},
+        lazy::{LazyValueRef, VariableMapper, identity_mapper},
+        registry::{self, BinOp, FnCtx, Function, FunctionValue, UnaryOp, VarArgs},
         value::{
-            CallContext, Value, ValueRef,
+            CallContext, ValueRef,
             native::{Array, Null, Object},
             ty::TypeValue,
         },
@@ -45,13 +45,85 @@ impl Special {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Variable {
+    pub name: IStr,
+    /// Identifier where the definition was created
+    pub def: Option<Ident>,
+    pub value: LazyValueRef,
+    pub readonly: bool,
+    pub on_resolve: VariableMapper,
+}
+
+impl Variable {
+    fn snapshot(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            def: self.def.clone(),
+            value: self.value.snapshot(),
+            readonly: self.readonly,
+            on_resolve: self.on_resolve,
+        }
+    }
+
+    /// Create a variable with a value.  Defaults to `null` if the value is None.
+    ///
+    /// This variable is _not_ readonly
+    pub fn definition(scope: &Scope, ident: Ident, value: Option<Expr>) -> Self {
+        if let Some(value) = value {
+            Self {
+                name: ident.inner.clone(),
+                def: Some(ident),
+                value: LazyValueRef::lazy(scope, value),
+                readonly: false,
+                on_resolve: identity_mapper,
+            }
+        } else {
+            let span = ident.span;
+            Self {
+                name: ident.inner.clone(),
+                def: Some(ident),
+                value: LazyValueRef::from_value(span, ValueRef::null()),
+                readonly: false,
+                on_resolve: identity_mapper,
+            }
+        }
+    }
+
+    /// Create a variable with a value.  Defaults to `null` if the value is None.
+    ///
+    /// This variable is _not_ readonly
+    pub fn definition_resolved(ident: Ident, span: Span, value: ValueRef) -> Self {
+        Self {
+            name: ident.inner.clone(),
+            def: Some(ident),
+            value: LazyValueRef::from_value(span, value),
+            readonly: false,
+            on_resolve: identity_mapper,
+        }
+    }
+}
+
 #[derive(Default, derive_more::Debug, Clone)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
-    variables: RefCell<HashMap<IStr, LazyValueRef>>,
+    variables: RefCell<HashMap<IStr, Variable>>,
     #[debug("..")]
     engine: Rc<Engine>,
     special: RefCell<Special>,
+}
+
+impl Drop for Scope {
+    fn drop(&mut self) {
+        // global scope only
+        if self.parent.is_some() {
+            for (name, var) in self.variables.borrow().iter() {
+                if var.value.resolved().is_none() {
+                    eprintln!("Unused Variable: {}", name);
+                }
+            }
+        }
+    }
 }
 
 impl Scope {
@@ -89,23 +161,23 @@ impl Scope {
         this.into()
     }
 
-    pub fn get_lazy_variable(&self, name: &str) -> EvalResult<Option<LazyValueRef>> {
+    pub fn get_variable(&self, name: &str) -> Option<Variable> {
         let vars = self.variables.borrow();
         if let Some(var) = vars.get(name) {
-            Ok(Some(var.clone()))
+            Some(var.clone())
         } else if let Some(parent) = &self.parent {
-            parent.get_lazy_variable(name)
+            parent.get_variable(name)
         } else {
-            Ok(None)
+            None
         }
     }
 
-    pub fn get_variable(&self, name: &str) -> EvalResult<Option<ValueRef>> {
+    pub fn resolve_var(&self, name: &str) -> EvalResult<Option<ValueRef>> {
         let vars = self.variables.borrow();
         if let Some(var) = vars.get(name) {
-            Ok(Some(var.get()?))
+            Ok(Some(var.value.get()?))
         } else if let Some(parent) = &self.parent {
-            parent.get_variable(name)
+            parent.resolve_var(name)
         } else {
             Ok(None)
         }
@@ -115,7 +187,7 @@ impl Scope {
     pub fn get_evaluated_variable(&self, name: &str) -> EvalResult<Option<ValueRef>> {
         let vars = self.variables.borrow();
         if let Some(var) = vars.get(name) {
-            Ok(var.resolved())
+            Ok(var.value.resolved())
         } else if let Some(parent) = &self.parent {
             parent.get_evaluated_variable(name)
         } else {
@@ -123,8 +195,27 @@ impl Scope {
         }
     }
 
+    /// Get a variable _only_ if it has been evaluated already
+    // this name is sad
+    pub fn get_evaluated_variable_with_span(
+        &self,
+        name: &str,
+    ) -> EvalResult<Option<(ValueRef, Span)>> {
+        let vars = self.variables.borrow();
+        if let Some(var) = vars.get(name) {
+            let Some(resolved) = var.value.resolved() else {
+                return Ok(None);
+            };
+            Ok(Some((resolved, var.value.value_span())))
+        } else if let Some(parent) = &self.parent {
+            parent.get_evaluated_variable_with_span(name)
+        } else {
+            Ok(None)
+        }
+    }
+
     pub(crate) fn expect_variable(&self, ident: &Ident) -> EvalResult<ValueRef> {
-        if let Some(var) = self.get_variable(ident.as_ref())? {
+        if let Some(var) = self.resolve_var(ident.as_ref())? {
             return Ok(var);
         }
 
@@ -137,33 +228,79 @@ impl Scope {
         })
     }
 
-    /// Returns true if the variable already existed in the current scope
-    pub fn set_variable<V>(&self, name: impl Into<IStr>, value: V, declare: bool) -> bool
-    where
-        V: Value,
+    pub fn declare_function<V, R>(
+        &self,
+        name: impl Into<IStr>,
+        func: fn(CallContext<FnCtx>, V) -> R,
+    ) where
+        fn(CallContext<FnCtx>, V) -> R: Function + 'static,
     {
-        self.engine.register_type::<V>();
-        self.set_variable_ref(name, value, declare)
+        self.declare_variable(Variable {
+            name: name.into(),
+            def: None,
+            value: LazyValueRef::from_value(Span::empty(), FunctionValue::new(func).into()),
+            readonly: true,
+            on_resolve: identity_mapper,
+        });
     }
 
-    /// Returns true if the variable already existed in the current scope
-    pub fn set_variable_ref<V>(&self, name: impl Into<IStr>, value: V, declare: bool) -> bool
-    where
-        V: Into<ValueRef>,
-    {
-        self.set_variable_by_ref(name, value.into(), declare)
+    /// Declare a new variable, returning an error if it already exists in the current scope
+    pub fn declare_variable(&self, var: Variable) {
+        self.variables.borrow_mut().insert(var.name.clone(), var);
     }
 
-    pub fn add_variable(&self, var: Variable) {
-        self.set_variable_by_ref(var.name.inner, LazyValueRef::lazy(self, var.value), true);
+    /// Set the value of a variable, erroring if the variable does not exist
+    pub fn set_variable(&self, name: Ident, span: Span, value: ValueRef) -> EvalResult<()> {
+        let mut vars = self.variables.borrow_mut();
+        match vars.entry(name.inner.clone()) {
+            Entry::Occupied(mut e) => {
+                let v = e.get_mut();
+                if v.readonly {
+                    return Err(EvalError::ReadonlyVariable {
+                        call: name,
+                        definition: v.def.as_ref().map(|i| i.span),
+                    });
+                } else {
+                    v.value = LazyValueRef::from_value(span, (v.on_resolve)(span, value)?);
+                }
+            }
+            Entry::Vacant(_) if let Some(parent) = &self.parent => {
+                return parent.set_variable(name, span, value);
+            }
+            Entry::Vacant(_) => return Err(EvalError::UndefinedVariable { ident: name }),
+        }
+        Ok(())
     }
 
-    pub fn add_mapped_variable(&self, var: Variable, mapper: VariableMapper) {
-        self.set_variable_by_ref(
-            var.name.inner,
-            LazyValueRef::lazy_mapped(self, var.value, mapper),
-            true,
-        );
+    /// Set the value of a variable, erroring if the variable does not exist
+    pub fn set_variable_lazy(&self, name: Ident, expr: Expr) -> EvalResult<()> {
+        let mut vars = self.variables.borrow_mut();
+        match vars.entry(name.inner.clone()) {
+            Entry::Occupied(mut e) => {
+                let v = e.get_mut();
+                v.value = LazyValueRef::lazy_mapped(self, expr, v.on_resolve);
+            }
+            Entry::Vacant(_) if let Some(parent) = &self.parent => {
+                return parent.set_variable_lazy(name, expr);
+            }
+            Entry::Vacant(_) => return Err(EvalError::UndefinedVariable { ident: name }),
+        }
+        Ok(())
+    }
+
+    pub fn add_variable(&self, var: VariableItem) {
+        self.add_mapped_variable(var, identity_mapper);
+    }
+
+    /// Add a readonly variable from an item with an optional mapper
+    pub fn add_mapped_variable(&self, var: VariableItem, mapper: VariableMapper) {
+        self.declare_variable(Variable {
+            name: var.name.inner.clone(),
+            def: Some(var.name),
+            value: LazyValueRef::lazy_mapped(self, var.value, mapper),
+            readonly: true,
+            on_resolve: mapper,
+        });
     }
 
     pub fn set_special(&self, special: Special) {
@@ -190,34 +327,6 @@ impl Scope {
             Special::None => unreachable!(),
             Special::Request(_) => None,
             Special::Response(r) => Some(r),
-        }
-    }
-
-    /// Returns true if the variable already existed
-    pub(crate) fn set_variable_by_ref(
-        &self,
-        name: impl Into<IStr>,
-        value: impl Into<LazyValueRef>,
-        declare: bool,
-    ) -> bool {
-        let name = name.into();
-        if declare {
-            self.variables
-                .borrow_mut()
-                .insert(name, value.into())
-                .is_some()
-        } else {
-            let mut vars = self.variables.borrow_mut();
-            match vars.entry(name.clone()) {
-                Entry::Occupied(mut e) => {
-                    e.insert(value.into());
-                    true
-                }
-                Entry::Vacant(_) if let Some(parent) = &self.parent => {
-                    parent.set_variable_by_ref(name, value, declare)
-                }
-                Entry::Vacant(_) => false,
-            }
         }
     }
 }
@@ -283,12 +392,10 @@ impl Scope {
                 if op == InfixOp::Assign {
                     return match lhs.ast {
                         Ast::Variable(var) => {
+                            let rhs_span = rhs.span;
                             let rhs = self.eval(rhs)?;
-                            if self.set_variable_by_ref(var.inner.clone(), rhs, false) {
-                                Ok(ValueRef::null())
-                            } else {
-                                return Err(EvalError::UndefinedVariable { ident: var });
-                            }
+                            self.set_variable(var, rhs_span, rhs)?;
+                            Ok(ValueRef::null())
                         }
                         Ast::FieldAccess { value, field: name } => {
                             let value_span = value.span;
@@ -451,15 +558,7 @@ impl Scope {
                 }
             }
             Ast::Declare { var, value } => {
-                if let Some(value) = value {
-                    self.set_variable_by_ref(
-                        var.inner.clone(),
-                        LazyValueRef::lazy(self, *value),
-                        true,
-                    );
-                } else {
-                    self.set_variable_by_ref(var.inner.clone(), ValueRef::null(), true);
-                }
+                self.declare_variable(Variable::definition(self, var, value.map(|b| *b)));
                 Ok(ValueRef::null())
             }
             Ast::FieldAccess { value, field } => {

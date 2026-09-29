@@ -9,6 +9,11 @@ use crate::{
     expr::Expr,
 };
 
+pub type VariableMapper = fn(Span, ValueRef) -> EvalResult<ValueRef>;
+pub fn identity_mapper(_: Span, v: ValueRef) -> EvalResult<ValueRef> {
+    Ok(v)
+}
+
 #[derive(Clone, derive_more::Debug)]
 enum LazyValueRefInner {
     Resolved {
@@ -21,18 +26,10 @@ enum LazyValueRefInner {
         scope_snapshot: Rc<Scope>,
         /// Option just so it can be taken
         expr: Option<Expr>,
-    },
-    PendingMapped {
-        /// Snapshot of the scope at the time the variable was set
-        scope_snapshot: Rc<Scope>,
-        /// Option just so it can be taken
-        expr: Option<Expr>,
         /// Mapper to apply after the variable has been resolved
         mapper: VariableMapper,
     },
 }
-
-pub type VariableMapper = fn(Span, ValueRef) -> EvalResult<ValueRef>;
 
 #[derive(derive_more::Debug, Clone)]
 #[debug("{:?}", inner.borrow())]
@@ -41,29 +38,20 @@ pub struct LazyValueRef {
 }
 
 impl LazyValueRef {
+    pub fn from_value(span: Span, value: ValueRef) -> Self {
+        Self {
+            inner: Rc::new(RefCell::new(LazyValueRefInner::Resolved {
+                resolved: value,
+                span,
+            })),
+        }
+    }
+
     pub fn get(&self) -> EvalResult<ValueRef> {
         let mut guard = self.inner.borrow_mut();
         match &mut *guard {
             LazyValueRefInner::Resolved { resolved, .. } => Ok(resolved.clone()),
             LazyValueRefInner::Pending {
-                scope_snapshot,
-                expr,
-            } => {
-                let expr = expr.take().expect(
-                    "This take sets inner to resolved and this option is not taken anywhere else",
-                );
-
-                let span = expr.span;
-                let val = scope_snapshot.eval(expr)?;
-                drop(guard);
-                let mut inner = self.inner.borrow_mut();
-                *inner = LazyValueRefInner::Resolved {
-                    resolved: val.clone(),
-                    span,
-                };
-                Ok(val)
-            }
-            LazyValueRefInner::PendingMapped {
                 scope_snapshot,
                 expr,
                 mapper,
@@ -91,7 +79,6 @@ impl LazyValueRef {
         match &*self.inner.borrow() {
             LazyValueRefInner::Resolved { resolved, .. } => Some(resolved.clone()),
             LazyValueRefInner::Pending { .. } => None,
-            LazyValueRefInner::PendingMapped { .. } => None,
         }
     }
 
@@ -100,13 +87,14 @@ impl LazyValueRef {
             inner: Rc::new(RefCell::new(LazyValueRefInner::Pending {
                 scope_snapshot: Rc::new(scope.snapshot()),
                 expr: Some(expr),
+                mapper: identity_mapper,
             })),
         }
     }
 
     pub(crate) fn lazy_mapped(scope: &Scope, expr: Expr, mapper: VariableMapper) -> Self {
         Self {
-            inner: Rc::new(RefCell::new(LazyValueRefInner::PendingMapped {
+            inner: Rc::new(RefCell::new(LazyValueRefInner::Pending {
                 scope_snapshot: Rc::new(scope.snapshot()),
                 expr: Some(expr),
                 mapper,
@@ -125,7 +113,6 @@ impl LazyValueRef {
                 }))
             }
             LazyValueRefInner::Pending { .. } => self.inner.clone(),
-            LazyValueRefInner::PendingMapped { .. } => self.inner.clone(),
         };
         Self { inner }
     }
@@ -134,7 +121,6 @@ impl LazyValueRef {
         match &*self.inner.borrow() {
             LazyValueRefInner::Resolved { span, .. } => *span,
             LazyValueRefInner::Pending { expr, .. } => expr.as_ref().unwrap().span,
-            LazyValueRefInner::PendingMapped { expr, .. } => expr.as_ref().unwrap().span,
         }
     }
 }

@@ -595,13 +595,13 @@ impl Route {
 }
 
 #[derive(Clone, Debug)]
-pub struct Variable {
+pub struct VariableItem {
     pub name: Ident,
     pub value: Expr,
     pub attributes: HashSet<Attribute>,
 }
 
-impl Parse for Variable {
+impl Parse for VariableItem {
     fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
         tokens.expect(Keyword::Let)?;
         let name = tokens.parse()?;
@@ -618,7 +618,7 @@ impl Parse for Variable {
 
 #[derive(Clone, Debug)]
 pub enum Item {
-    Variable(Variable),
+    Variable(VariableItem),
     Route(Route),
 }
 
@@ -646,7 +646,7 @@ impl Parser {
         let mut la = self.tokens.lookahead();
 
         let item = if la.peek(Keyword::Let) {
-            Item::Variable(Variable {
+            Item::Variable(VariableItem {
                 attributes,
                 ..self.tokens.parse()?
             })

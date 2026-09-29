@@ -3,11 +3,7 @@ use std::{fmt::Display, rc::Rc};
 use bytes::Bytes;
 use inq_lang::{
     IStr, StringExt,
-    eval::{
-        Engine, EvalResult, Special,
-        registry::{FunctionValue, VarArgs},
-        value::ValueRef,
-    },
+    eval::{Engine, EvalResult, Special, registry::VarArgs, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use rustyline::DefaultEditor;
@@ -147,108 +143,76 @@ pub fn base_engine() -> Rc<Engine> {
 
     let global = engine.global();
 
-    global.set_variable(
-        "env",
-        FunctionValue::new(|_ctx, var: IStr| {
-            std::env::var(&*var)
-                .ok()
-                .map(IStr::from)
-                .map(ValueRef::new)
-                .unwrap_or_else(ValueRef::null)
-        }),
-        true,
-    );
-    global.set_variable(
-        "prompt",
-        FunctionValue::new(|ctx, text: IStr| {
-            let e = prompt(&text).map_err(|e| ctx.error(format!("Error prompting: {}", e)))?;
-            Ok(e.intern())
-        }),
-        true,
-    );
+    global.declare_function("env", |_ctx, var: IStr| {
+        std::env::var(&*var)
+            .ok()
+            .map(IStr::from)
+            .map(ValueRef::new)
+            .unwrap_or_else(ValueRef::null)
+    });
+    global.declare_function("prompt", |ctx, text: IStr| {
+        let e = prompt(&text).map_err(|e| ctx.error(format!("Error prompting: {}", e)))?;
+        Ok(e.intern())
+    });
 
-    global.set_variable(
-        "print",
-        FunctionValue::new(|_ctx, s: VarArgs| {
-            for (i, a) in s.inner.into_iter().enumerate() {
-                if i > 0 {
-                    print!(" ")
-                }
-                let mut out = String::new();
-                a.value().to_string(&mut out);
-                print!("{}", out);
+    global.declare_function("print", |_ctx, s: VarArgs| {
+        for (i, a) in s.inner.into_iter().enumerate() {
+            if i > 0 {
+                print!(" ")
             }
-            println!();
-        }),
-        true,
-    );
-    global.set_variable(
-        "debug",
-        FunctionValue::new(|_ctx, s: ValueRef| {
-            eprintln!("{:#?}", s.debug());
-            s // allow it to be used like dbg!
-        }),
-        true,
-    );
+            let mut out = String::new();
+            a.value().to_string(&mut out);
+            print!("{}", out);
+        }
+        println!();
+    });
+    global.declare_function("debug", |_ctx, s: ValueRef| {
+        eprintln!("{:#?}", s.debug());
+        s // allow it to be used like dbg!
+    });
 
-    global.set_variable("json", FunctionValue::new(Json::from_value), true);
-    global.set_variable(
-        "assert",
-        FunctionValue::new(|ctx, b: bool| {
-            if b {
-                Ok(ValueRef::null())
+    global.declare_function("json", Json::from_value);
+    global.declare_function("assert", |ctx, b: bool| {
+        if b {
+            Ok(ValueRef::null())
+        } else {
+            Err(ctx.error_args("Assertion failed", [(0, "Expected to be true")]))
+        }
+    });
+    global.declare_function("assert_success", |ctx, ()| match ctx.scope().special() {
+        None | Some(Special::None) | Some(Special::Request(_)) => {
+            Err(ctx.error("`assert_success` may only be used in after block"))
+        }
+        Some(Special::Response(r)) => {
+            let res = r.downcast_rc::<ResponseValue>().expect("we set this type");
+            if res.status().is_success() {
+                Ok(())
             } else {
-                Err(ctx.error_args("Assertion failed", [(0, "Expected to be true")]))
+                Err(ctx.error(format!("Expected successful status, got {}", res.status())))
             }
-        }),
-        true,
-    );
-    global.set_variable(
-        "assert_success",
-        FunctionValue::new(|ctx, ()| match ctx.scope().special() {
-            None | Some(Special::None) | Some(Special::Request(_)) => {
-                Err(ctx.error("`assert_success` may only be used in after block"))
-            }
-            Some(Special::Response(r)) => {
-                let res = r.downcast_rc::<ResponseValue>().expect("we set this type");
-                if res.status().is_success() {
-                    Ok(())
-                } else {
-                    Err(ctx.error(format!("Expected successful status, got {}", res.status())))
-                }
-            }
-        }),
-        true,
-    );
+        }
+    });
 
-    global.set_variable(
-        "read_text_file",
-        FunctionValue::new(|ctx, s: IStr| {
-            std::fs::read_to_string(&*s)
-                .map_err(|e| {
-                    ctx.error_args(
-                        format!("Unable to read text file: {}", e),
-                        [(0, "this path")],
-                    )
-                })
-                .map(IStr::from)
-        }),
-        true,
-    );
-    global.set_variable(
-        "read_raw_file",
-        FunctionValue::new(|ctx, s: IStr| {
-            std::fs::read(&*s)
-                .map_err(|e| {
-                    ctx.error_args(
-                        format!("Unable to read raw file: {}", e),
-                        [(0, "this path")],
-                    )
-                })
-                .map(BytesValue::from)
-        }),
-        true,
-    );
+    global.declare_function("read_text_file", |ctx, s: IStr| {
+        std::fs::read_to_string(&*s)
+            .map_err(|e| {
+                ctx.error_args(
+                    format!("Unable to read text file: {}", e),
+                    [(0, "this path")],
+                )
+            })
+            .map(IStr::from)
+    });
+    global.declare_function("read_raw_file", |ctx, s: IStr| {
+        std::fs::read(&*s)
+            .map_err(|e| {
+                ctx.error_args(
+                    format!("Unable to read raw file: {}", e),
+                    [(0, "this path")],
+                )
+            })
+            .map(BytesValue::from)
+    });
 
     engine
 }
