@@ -1,4 +1,4 @@
-use std::{collections::HashSet, fmt::Display};
+use std::{collections::HashSet, fmt::Display, hash::Hash};
 
 use miette::{Diagnostic, SourceSpan};
 use thiserror::Error;
@@ -186,11 +186,21 @@ impl Lookahead<'_> {
     }
 }
 
-#[derive(derive_more::Debug, Clone, PartialEq, Eq)]
+#[derive(derive_more::Debug, Clone, derive_more::PartialEq, derive_more::Eq)]
 #[debug("Ident({:?}, {:?})", inner, span)]
 pub struct Ident {
     pub(crate) inner: IStr,
+    #[eq(skip)]
     pub span: Span,
+}
+
+impl Hash for Ident {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.inner.hash(state);
+        // NOTE: This is not included so that two identifiers hash as equal if they have the same
+        // name
+        // self.span.hash(state);
+    }
 }
 
 impl Ident {

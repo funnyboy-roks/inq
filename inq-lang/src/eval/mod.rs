@@ -116,9 +116,13 @@ impl Engine {
         self.types.borrow()
     }
 
-    fn get_type(&self, value: &ValueRef, span: Span) -> EvalResult<Rc<AnyRegistry>> {
+    pub(crate) fn get_type(&self, value: &ValueRef, span: Span) -> EvalResult<Rc<AnyRegistry>> {
         let types = self.types();
         types.get(value, span)
+    }
+
+    pub(crate) fn get_type_by_name(&self, name: &str) -> Option<Rc<AnyRegistry>> {
+        self.types().get_by_name(name)
     }
 
     fn get_index(&self, value: &ValueRef, index: &ValueRef, span: Span) -> EvalResult<Indexer> {

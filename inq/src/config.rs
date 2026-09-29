@@ -3,6 +3,7 @@ use std::{collections::HashMap, rc::Rc, str::FromStr, time::Duration};
 use fuzzt::processors::{LowerAlphaNumStringProcessor, StringProcessor};
 use inq_lang::{
     Attribute, IStr, Ident, Item, Parser, Route, Span,
+    check::Checker,
     eval::{Engine, EvalError, value::ValueRef},
 };
 use reqwest::Url;
@@ -27,49 +28,55 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load(content: &str) -> miette::Result<Self> {
+    pub fn load(name: &str, content: &str) -> miette::Result<Self> {
         let mut this = Self {
             routes: Default::default(),
             persisted_vars: Default::default(),
             engine: script::base_engine(),
         };
 
-        this.parse_items(content)?;
+        this.parse_items(name, content)?;
 
         Ok(this)
     }
 
-    fn parse_items(&mut self, content: &str) -> miette::Result<()> {
+    fn handle_item(&mut self, item: Item) -> miette::Result<()> {
+        match item {
+            Item::Variable(v) => {
+                if v.attributes.contains(&Attribute::Persist) {
+                    self.persisted_vars.push(v.name.clone());
+                }
+                if v.name == "BASE_URL" {
+                    self.engine
+                        .global()
+                        .add_mapped_variable(v, |span: Span, value: ValueRef| {
+                            if value.is::<UrlValue>() {
+                                return Ok(value);
+                            }
+
+                            let s = value.expect_downcast::<IStr>(span)?;
+                            let url = Url::from_str(&s).map_err(|e| {
+                                EvalError::custom(span, format!("Unable to parse url: {}", e))
+                            })?;
+
+                            Ok(ValueRef::from(UrlValue(url)))
+                        });
+                } else {
+                    self.engine.global().add_variable(v);
+                }
+            }
+            Item::Route(r) => self.routes.push(r),
+        }
+        Ok(())
+    }
+
+    fn parse_items(&mut self, name: &str, content: &str) -> miette::Result<()> {
         let mut parser = Parser::new(content)?;
 
         while let Some(item) = parser.take_item()? {
-            match item {
-                Item::Variable(v) => {
-                    if v.attributes.contains(&Attribute::Persist) {
-                        self.persisted_vars.push(v.name.clone());
-                    }
-                    if v.name == "BASE_URL" {
-                        self.engine.global().add_mapped_variable(
-                            v,
-                            |span: Span, value: ValueRef| {
-                                if value.is::<UrlValue>() {
-                                    return Ok(value);
-                                }
-
-                                let s = value.expect_downcast::<IStr>(span)?;
-                                let url = Url::from_str(&s).map_err(|e| {
-                                    EvalError::custom(span, format!("Unable to parse url: {}", e))
-                                })?;
-
-                                Ok(ValueRef::from(UrlValue(url)))
-                            },
-                        );
-                    } else {
-                        self.engine.global().add_variable(v);
-                    }
-                }
-                Item::Route(r) => self.routes.push(r),
-            }
+            Checker::new(self.engine.global(), inq_lang::source(name, content))
+                .check_item(&item)?;
+            self.handle_item(item)?;
         }
 
         Ok(())

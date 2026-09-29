@@ -17,8 +17,9 @@ route login() => POST "/login"
     }
     after {
         let cookie_header = Cookie.parse(response.headers["set-cookie"]);
+        let cookie_header = "hello";
         debug(cookie_header);
-        cookie = cookie_header.expires_at;
+        // cookie = cookie_header.expires_at;
     }
 
 route file => POST "/echo"
@@ -28,7 +29,7 @@ route file => POST "/echo"
 
 route raw => POST "/echo"
     before {
-        body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
+        request.body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
     }
 
 route status(code) => GET "/status/${code}";

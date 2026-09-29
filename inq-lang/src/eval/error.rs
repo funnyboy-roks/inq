@@ -2,7 +2,7 @@ use miette::Diagnostic;
 use thiserror::Error;
 
 use crate::{
-    Ident, Span,
+    IStr, Ident, Span,
     eval::registry::{BinOp, UnaryOp},
     util::DisplayVec,
 };
@@ -182,7 +182,7 @@ impl From<miette::Report> for EvalError {
 }
 
 impl EvalError {
-    pub fn into_report(self, name: impl Into<String>, source: impl Into<String>) -> miette::Report {
+    pub fn into_report(self, name: impl Into<String>, source: impl Into<IStr>) -> miette::Report {
         miette::Report::from(self).with_source_code(crate::source(name, source))
     }
 

@@ -109,21 +109,8 @@ pub struct Scope {
     parent: Option<Rc<Scope>>,
     variables: RefCell<HashMap<IStr, Variable>>,
     #[debug("..")]
-    engine: Rc<Engine>,
+    pub(crate) engine: Rc<Engine>,
     special: RefCell<Special>,
-}
-
-impl Drop for Scope {
-    fn drop(&mut self) {
-        // global scope only
-        if self.parent.is_some() {
-            for (name, var) in self.variables.borrow().iter() {
-                if var.value.resolved().is_none() {
-                    eprintln!("Unused Variable: {}", name);
-                }
-            }
-        }
-    }
 }
 
 impl Scope {
@@ -159,6 +146,11 @@ impl Scope {
         let mut this = Self::new(self.engine.clone());
         this.parent = Some(self.clone());
         this.into()
+    }
+
+    /// Get a variable in the local scope, without going up at all
+    pub(crate) fn get_local_variable(&self, name: &str) -> Option<Variable> {
+        self.variables.borrow().get(name).cloned()
     }
 
     pub fn get_variable(&self, name: &str) -> Option<Variable> {
@@ -314,7 +306,7 @@ impl Scope {
         }
     }
 
-    fn request(&self) -> Option<ValueRef> {
+    pub(crate) fn request(&self) -> Option<ValueRef> {
         match self.special()? {
             Special::None => unreachable!(),
             Special::Request(r) => Some(r),
@@ -322,7 +314,7 @@ impl Scope {
         }
     }
 
-    fn response(&self) -> Option<ValueRef> {
+    pub(crate) fn response(&self) -> Option<ValueRef> {
         match self.special()? {
             Special::None => unreachable!(),
             Special::Request(_) => None,
@@ -584,7 +576,7 @@ impl Scope {
                 let mut eval_args = Vec::with_capacity(args.len());
                 for a in args {
                     arg_spans.push(a.span);
-                    eval_args.push(self.eval(a)?);
+                    eval_args.push(self.make_child().eval(a)?);
                 }
 
                 let span = method.span;

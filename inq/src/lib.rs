@@ -15,7 +15,9 @@ pub mod testing;
 mod util;
 
 pub fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
-    let config = Config::load(config_str)?;
+    let name = cli.config.file_name().unwrap().to_string_lossy();
+
+    let config = Config::load(&name, config_str)?;
     let mut state = State::load(&cli.config)?;
     state.apply_variables(&config)?;
 

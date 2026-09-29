@@ -1,6 +1,7 @@
 use std::{borrow::Borrow, cell::RefCell, collections::HashSet, ops::Deref, sync::Arc};
 
 use derive_more::Display;
+use miette::SourceCode;
 use serde::{Deserialize, Serialize};
 
 thread_local! {
@@ -142,6 +143,18 @@ impl From<String> for IStr {
 impl Borrow<str> for IStr {
     fn borrow(&self) -> &str {
         self.as_ref()
+    }
+}
+
+impl SourceCode for IStr {
+    fn read_span<'a>(
+        &'a self,
+        span: &miette::SourceSpan,
+        context_lines_before: usize,
+        context_lines_after: usize,
+    ) -> Result<Box<dyn miette::SpanContents<'a> + 'a>, miette::MietteError> {
+        self.0
+            .read_span(span, context_lines_before, context_lines_after)
     }
 }
 
