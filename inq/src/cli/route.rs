@@ -123,7 +123,7 @@ fn handle_cli(scope: &Rc<Scope>, route_cmd: &RouteCommand, route: &Route) -> mie
             .args
             .iter()
             .enumerate()
-            .find(|(_, a)| a.name == &*value.name)
+            .find(|(_, a)| a.name == *value.name)
         {
             if let Some(existing) = &cli_values[i] {
                 // special case if the values are the same, then just warn

@@ -22,10 +22,11 @@ use crate::{
     },
     expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectField},
     parse::StringExpr,
+    util::OptionNonExhaustive,
 };
 
 /// Special items that are used for configuring/confirming a request
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub enum Special {
     #[default]
     None,
@@ -104,13 +105,27 @@ impl Variable {
     }
 }
 
-#[derive(Default, derive_more::Debug, Clone)]
+#[derive(Default, Clone)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
     variables: RefCell<HashMap<IStr, Variable>>,
-    #[debug("..")]
     pub(crate) engine: Rc<Engine>,
     special: RefCell<Special>,
+}
+
+impl std::fmt::Debug for Scope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.variables.borrow().is_empty() && *self.special.borrow() == Special::None {
+            f.write_str("Scope(<empty>)")
+        } else {
+            f.debug_struct("Scope")
+                .field("parent", &OptionNonExhaustive(&self.parent))
+                .field("variables", &self.variables.borrow())
+                .field("engine", &std::fmt::from_fn(|f| f.write_str("..")))
+                .field("special", &self.special.borrow())
+                .finish()
+        }
+    }
 }
 
 impl Scope {
@@ -290,7 +305,7 @@ impl Scope {
             name: var.name.inner.clone(),
             def: Some(var.name),
             value: LazyValueRef::lazy_mapped(self, var.value, mapper),
-            readonly: true,
+            readonly: false,
             on_resolve: mapper,
         });
     }

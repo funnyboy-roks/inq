@@ -52,3 +52,18 @@ impl<T: Display> Display for OptionDisplay<'_, T> {
         }
     }
 }
+
+pub(crate) struct OptionNonExhaustive<'a, T>(pub &'a Option<T>);
+impl<'a, T> Display for OptionNonExhaustive<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(_) => f.write_str("Some(..)"),
+            None => f.write_str("None"),
+        }
+    }
+}
+impl<'a, T> Debug for OptionNonExhaustive<'a, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self)
+    }
+}

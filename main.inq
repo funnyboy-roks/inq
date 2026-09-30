@@ -2,7 +2,7 @@ let port = 3000;
 let BASE_URL = "http://localhost:$port";
 
 #[persist]
-let cookie = "";
+let _cookie = "";
 #[persist]
 let user = prompt("Username") || Faker.username();
 #[persist]
@@ -17,9 +17,8 @@ route login() => POST "/login"
     }
     after {
         let cookie_header = Cookie.parse(response.headers["set-cookie"]);
-        let cookie_header = "hello";
         debug(cookie_header);
-        // cookie = cookie_header.expires_at;
+        _cookie = cookie_header.value;
     }
 
 route file => POST "/echo"

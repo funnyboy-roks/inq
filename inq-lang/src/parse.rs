@@ -215,6 +215,11 @@ impl Ident {
     }
 }
 
+impl PartialEq<str> for Ident {
+    fn eq(&self, other: &str) -> bool {
+        self.inner.eq(&other)
+    }
+}
 impl PartialEq<&str> for Ident {
     fn eq(&self, other: &&str) -> bool {
         self.inner.eq(other)

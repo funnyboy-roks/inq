@@ -46,7 +46,7 @@ impl Config {
                 if v.attributes.contains(&Attribute::Persist) {
                     self.persisted_vars.push(v.name.clone());
                 }
-                if v.name == "BASE_URL" {
+                if v.name == *"BASE_URL" {
                     self.engine
                         .global()
                         .add_mapped_variable(v, |span: Span, value: ValueRef| {
@@ -73,11 +73,14 @@ impl Config {
     fn parse_items(&mut self, name: &str, content: &str) -> miette::Result<()> {
         let mut parser = Parser::new(content)?;
 
+        let checker = Checker::new(self.engine.global(), inq_lang::source(name, content));
+
         while let Some(item) = parser.take_item()? {
-            Checker::new(self.engine.global(), inq_lang::source(name, content))
-                .check_item(&item)?;
+            checker.check_item(&item)?;
             self.handle_item(item)?;
         }
+
+        checker.print_warnings();
 
         Ok(())
     }

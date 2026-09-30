@@ -19,6 +19,9 @@ impl Span {
     pub fn with_label(self, label: impl Into<String>) -> LabeledSpan {
         LabeledSpan::new_with_span(Some(label.into()), self)
     }
+    pub fn with_label_primary(self, label: impl Into<String>) -> LabeledSpan {
+        LabeledSpan::new_primary_with_span(Some(label.into()), self)
+    }
 }
 
 impl From<Span> for SourceSpan {
