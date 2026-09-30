@@ -46,7 +46,7 @@ impl Config {
                 if v.attributes.contains(&Attribute::Persist) {
                     self.persisted_vars.push(v.name.clone());
                 }
-                if v.name == *"BASE_URL" {
+                if v.name == "BASE_URL" {
                     self.engine
                         .global()
                         .add_mapped_variable(v, |span: Span, value: ValueRef| {
