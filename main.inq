@@ -21,7 +21,7 @@ route login() => POST "/login"
         _cookie = cookie_header.value;
     }
 
-route file => POST "/echo"
+route password_file => POST "/echo"
     before {
         request.body = read_text_file("./password")
     }
@@ -29,6 +29,20 @@ route file => POST "/echo"
 route raw => POST "/echo"
     before {
         request.body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
+    }
+
+route file => GET "/file"
+    after {
+        debug(response);
+    }
+
+route my_route(name = null) => POST "/echo"
+    before {
+        request.body = json({
+            full_name: name,
+            // name_len if name != null: name.len(),      // A
+            // if name != null then name_len: name.len(), // B
+        });
     }
 
 route status(code) => GET "/status/${code}";

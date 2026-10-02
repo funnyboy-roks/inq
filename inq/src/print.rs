@@ -1,4 +1,9 @@
-use std::{fmt::Display, io::Write, ops::Deref, time::Duration};
+use std::{
+    fmt::Display,
+    io::{IsTerminal, Write},
+    ops::Deref,
+    time::Duration,
+};
 
 use miette::{Context, IntoDiagnostic};
 use reqwest::blocking::Request;
@@ -190,8 +195,9 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
             None | Some(_) => {
                 eprintln!("{}{}:", "Response Body (Raw)".cyan(), encoding);
                 let bytes = res.body.bytes()?;
-                if str::from_utf8(&bytes).is_ok() || raw {
-                    std::io::stdout()
+                let mut stdout = std::io::stdout().lock();
+                if str::from_utf8(&bytes).is_ok() || raw || !stdout.is_terminal() {
+                    stdout
                         .write_all(&res.body.bytes()?)
                         .into_diagnostic()
                         .context("Writing response body")?;
