@@ -282,7 +282,13 @@ impl Value for Null {
     where
         Self: Sized,
     {
-        registry.register_cmp(|&Null, v: &ValueRef| v.downcast::<Null>().map(|_| Ordering::Equal));
+        registry.register_cmp(|&Null, v: &ValueRef| {
+            Some(
+                v.downcast::<Null>()
+                    .map(|_| Ordering::Equal)
+                    .unwrap_or(Ordering::Less), // TODO: figure this out
+            )
+        });
     }
 }
 

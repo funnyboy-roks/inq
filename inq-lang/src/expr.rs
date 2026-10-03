@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::{
     IStr, Span,
     eval::value::ValueRef,
@@ -172,7 +174,7 @@ impl PostfixOp {
 }
 
 #[derive(Clone, Debug, derive_more::Display)]
-pub enum ObjectField {
+pub enum ObjectFieldKV {
     /// `{ foo }`
     #[display("{_0}")]
     Ident(Ident),
@@ -185,6 +187,65 @@ pub enum ObjectField {
     /// Used for setting object field programmatically
     #[display("{_0}: {}", _1.display())]
     StringValue(IStr, ValueRef),
+}
+
+impl Parse for ObjectFieldKV {
+    fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
+        let mut la = tokens.lookahead();
+        let kvp = if la.peek(Identifier) {
+            let ident = tokens.parse()?;
+            let mut la = tokens.lookahead();
+
+            if la.peek(Punct::Colon) {
+                tokens.expect(Punct::Colon)?;
+                Self::IdentWithValue(ident, tokens.parse()?)
+            } else if la.peek(Punct::Comma) || la.eof("End of object literal") {
+                Self::Ident(ident)
+            } else {
+                return la.error();
+            }
+        } else if la.peek(LitKind::String) {
+            let key = tokens.parse()?;
+            tokens.expect(Punct::Colon)?;
+
+            Self::String(key, tokens.parse()?)
+        } else {
+            return la.error();
+        };
+
+        Ok(kvp)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ObjectField {
+    pub condition: Option<Expr>,
+    pub kv: ObjectFieldKV,
+}
+
+impl Display for ObjectField {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if let Some(c) = &self.condition {
+            write!(f, "if {} then {}", c, self.kv)
+        } else {
+            self.kv.fmt(f)
+        }
+    }
+}
+
+impl Parse for ObjectField {
+    fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
+        Ok(Self {
+            condition: if tokens.next_if(Keyword::If).is_some() {
+                let expr = tokens.parse()?;
+                tokens.expect(Keyword::Then)?;
+                Some(expr)
+            } else {
+                None
+            },
+            kv: tokens.parse()?,
+        })
+    }
 }
 
 #[derive(Clone, Debug, derive_more::Display)]
@@ -586,29 +647,7 @@ impl Expr {
         let mut fields = Vec::new();
 
         while !tokens.is_empty() {
-            let mut la = tokens.lookahead();
-            let field = if la.peek(Identifier) {
-                let ident = tokens.parse()?;
-                let mut la = tokens.lookahead();
-
-                if la.peek(Punct::Colon) {
-                    tokens.expect(Punct::Colon)?;
-                    ObjectField::IdentWithValue(ident, tokens.parse()?)
-                } else if la.peek(Punct::Comma) || la.eof("End of object literal") {
-                    ObjectField::Ident(ident)
-                } else {
-                    return la.error();
-                }
-            } else if la.peek(LitKind::String) {
-                let key = tokens.parse()?;
-                tokens.expect(Punct::Colon)?;
-
-                ObjectField::String(key, tokens.parse()?)
-            } else {
-                return la.error();
-            };
-
-            fields.push(field);
+            fields.push(tokens.parse()?);
 
             if tokens.next_if(Punct::Comma).is_none() {
                 break;

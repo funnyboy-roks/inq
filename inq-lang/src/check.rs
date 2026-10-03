@@ -10,7 +10,7 @@ use miette::{NamedSource, Severity};
 use crate::{
     IStr, Ident, Item,
     eval::{EvalError, EvalResult, Scope, Special, Variable, value::ValueRef},
-    expr::{Ast, Expr, InfixOp, ObjectField},
+    expr::{Ast, Expr, InfixOp, ObjectField, ObjectFieldKV},
     parse::Block,
     util::OptionNonExhaustive,
 };
@@ -283,20 +283,23 @@ impl CheckScope {
             }
             Ast::ObjectLiteral { fields } => {
                 for f in fields {
-                    match f {
-                        ObjectField::Ident(ident) => {
+                    if let Some(cond) = &f.condition {
+                        self.check(cond)?;
+                    }
+                    match &f.kv {
+                        ObjectFieldKV::Ident(ident) => {
                             self.expect_variable(ident, true)?;
                         }
-                        ObjectField::IdentWithValue(_, expr) => {
+                        ObjectFieldKV::IdentWithValue(_, expr) => {
                             self.make_child().check(expr)?;
                         }
-                        ObjectField::String(s, expr) => {
+                        ObjectFieldKV::String(s, expr) => {
                             for i in &s.interpolations {
                                 self.check(&i.expr)?;
                             }
                             self.make_child().check(expr)?;
                         }
-                        ObjectField::StringValue(_, _) => {}
+                        ObjectFieldKV::StringValue(_, _) => {}
                     }
                 }
             }

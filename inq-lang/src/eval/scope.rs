@@ -20,7 +20,7 @@ use crate::{
             ty::TypeValue,
         },
     },
-    expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectField},
+    expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectField, ObjectFieldKV},
     parse::StringExpr,
     util::OptionNonExhaustive,
 };
@@ -505,6 +505,16 @@ impl Scope {
                             && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
                         {
                             ord.reverse()
+                        } else if let registry = self.engine.types().get(&lhs, lhs_span)?
+                            && let Some(cmp) = registry.get_cmp(None)
+                            && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
+                        {
+                            ord
+                        } else if let registry = self.engine.types().get(&rhs, rhs_span)?
+                            && let Some(cmp) = registry.get_cmp(None)
+                            && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
+                        {
+                            ord.reverse()
                         } else {
                             return Err(EvalError::InvalidCmp {
                                 lhs: lhs.type_name_of().into(),
@@ -679,20 +689,25 @@ impl Scope {
             Ast::ObjectLiteral { fields } => {
                 let mut inner = IndexMap::<IStr, ValueRef>::new();
                 for f in fields {
-                    let (k, v) = match f {
-                        ObjectField::Ident(ident) => {
+                    if let Some(cond) = f.condition
+                        && !self.eval(cond)?.value().truthy()
+                    {
+                        continue; // skip this field
+                    }
+                    let (k, v) = match f.kv {
+                        ObjectFieldKV::Ident(ident) => {
                             let s = ident.inner.clone();
                             let val = self.expect_variable(&ident)?;
                             (s, val)
                         }
-                        ObjectField::IdentWithValue(ident, expr) => {
+                        ObjectFieldKV::IdentWithValue(ident, expr) => {
                             (ident.inner, self.make_child().eval(expr)?)
                         }
-                        ObjectField::String(string_expr, expr) => (
+                        ObjectFieldKV::String(string_expr, expr) => (
                             self.eval_string(string_expr)?,
                             self.make_child().eval(expr)?,
                         ),
-                        ObjectField::StringValue(key, value) => (key, value),
+                        ObjectFieldKV::StringValue(key, value) => (key, value),
                     };
                     inner.insert(k, v);
                 }
