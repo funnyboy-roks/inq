@@ -17,6 +17,8 @@ syn keyword inqPatch PATCH
 syn keyword inqRequest  request
 syn keyword inqResponse response
 
+syn keyword inqType String Int Float Bytes Array Duration DateTime Bool Object Cookie Faker Request Response Url HeaderMap Client Json
+
 syn keyword inqControlFlow if then else before after
 
 syn match inqBool 'true\|false' display
@@ -55,7 +57,7 @@ syn match inqRouteNameSep '/' display contained
 syn match inqRouteName    "\w\(\%([^[:cntrl:][:space:][:punct:][:digit:]]\|_\)\%([^[:cntrl:][:punct:][:space:]]\|_\|/\)*\)*" display contained contains=inqRouteNameSep
 syn keyword inqRoute route nextgroup=inqRouteName skipwhite
 
-syn region inqStringInterpolate matchgroup=inqInterpolated start='${' end='}' display contains=inqNumber,inqString,inqComment,inqControlFlow,inqBlock,inqFuncName
+syn region inqStringInterpolate matchgroup=inqInterpolated start='${' end='}' display contains=TOP
 
 syn region inqAttribute start='#\[' end='\]' display
 
@@ -80,6 +82,7 @@ hi def link inqRequest Identifier
 hi def link inqResponse inqRequest
 
 hi def link inqMethod  Type
+hi def link inqType    Type
 hi def link inqGet     inqMethod
 hi def link inqHead    inqMethod
 hi def link inqPost    inqMethod
