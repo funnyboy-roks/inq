@@ -394,179 +394,7 @@ impl Scope {
                 op,
                 op_span,
                 operands,
-            } => {
-                let (lhs, rhs) = *operands;
-                if op == InfixOp::Assign {
-                    return match lhs.ast {
-                        Ast::Variable(var) => {
-                            let rhs_span = rhs.span;
-                            let rhs = self.eval(rhs)?;
-                            self.set_variable(var, rhs_span, rhs)?;
-                            Ok(ValueRef::null())
-                        }
-                        Ast::FieldAccess { value, field: name } => {
-                            let value_span = value.span;
-                            let obj = self.eval(*value)?;
-                            let value = self.eval(rhs)?;
-
-                            let reg = self.engine.get_type(&obj, value_span)?;
-                            if let Some(field) = reg.get_field(&name.inner) {
-                                if let Some(ref setter) = field.setter {
-                                    setter.set(
-                                        value,
-                                        CallContext::new(name.span, obj, self.clone()),
-                                    )?;
-                                } else {
-                                    return Err(EvalError::ReadonlyField {
-                                        ty: value.type_name_of().into(),
-                                        field: name.clone(),
-                                    });
-                                }
-                            } else {
-                                reg.field_set_fallback.set(
-                                    CallContext::new(name.span, obj, self.clone()),
-                                    name,
-                                    value,
-                                )?;
-                            }
-
-                            Ok(ValueRef::null())
-                        }
-                        Ast::Index {
-                            value,
-                            index,
-                            question,
-                        } => {
-                            if let Some(question) = question {
-                                return Err(EvalError::InvalidQuestion { span: question });
-                            }
-                            let span = index.span;
-                            let ctx = registry::SetIndexCtx {
-                                rhs_span: rhs.span,
-                                index_span: index.span,
-                            };
-                            let rhs = self.eval(rhs)?;
-                            let value = self.eval(*value)?;
-                            let index = self.eval(*index)?;
-                            let indexer = self.engine.get_index(&value, &index, span)?;
-                            let setter = indexer.setter.as_ref().ok_or_else(|| {
-                                EvalError::ReadonlyIndex {
-                                    ty: value.type_name_of().into(),
-                                    index: index.type_name_of().into(),
-                                    span,
-                                }
-                            })?;
-                            setter.set(
-                                index,
-                                rhs,
-                                CallContext::new_ext(span, value.clone(), self.clone(), ctx),
-                            )?;
-
-                            Ok(ValueRef::null())
-                        }
-                        _ => Err(EvalError::InvalidAssignment {
-                            span: op_span,
-                            lhs_span: lhs.span,
-                        }),
-                    };
-                }
-
-                let op = match op {
-                    InfixOp::Assign => unreachable!("handled above"),
-                    InfixOp::Or => {
-                        let lhs = self.eval(lhs)?;
-                        if lhs.value().truthy() {
-                            return Ok(lhs);
-                        } else {
-                            return self.eval(rhs);
-                        }
-                    }
-                    InfixOp::And => {
-                        let lhs = self.eval(lhs)?;
-                        if lhs.value().truthy() {
-                            return self.eval(rhs);
-                        } else {
-                            return Ok(lhs);
-                        }
-                    }
-                    InfixOp::Cmp(cmp) => {
-                        let lhs_span = lhs.span;
-                        let rhs_span = rhs.span;
-                        let lhs = self.eval(lhs)?;
-                        let rhs = self.eval(rhs)?;
-
-                        let ord = if let registry = self.engine.types().get(&lhs, lhs_span)?
-                            && let Some(cmp) = registry.get_cmp(Some(rhs.type_id()))
-                            && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
-                        {
-                            ord
-                        } else if let registry = self.engine.types().get(&rhs, rhs_span)?
-                            && let Some(cmp) = registry.get_cmp(Some(lhs.type_id()))
-                            && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
-                        {
-                            ord.reverse()
-                        } else if let registry = self.engine.types().get(&lhs, lhs_span)?
-                            && let Some(cmp) = registry.get_cmp(None)
-                            && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
-                        {
-                            ord
-                        } else if let registry = self.engine.types().get(&rhs, rhs_span)?
-                            && let Some(cmp) = registry.get_cmp(None)
-                            && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
-                        {
-                            ord.reverse()
-                        } else {
-                            return Err(EvalError::InvalidCmp {
-                                lhs: lhs.type_name_of().into(),
-                                rhs: rhs.type_name_of().into(),
-                                span: op_span,
-                            });
-                        };
-
-                        let result = match cmp {
-                            CmpOp::Lt => matches!(ord, Ordering::Less),
-                            CmpOp::Lte => matches!(ord, Ordering::Less | Ordering::Equal),
-                            CmpOp::Gt => matches!(ord, Ordering::Greater),
-                            CmpOp::Gte => matches!(ord, Ordering::Greater | Ordering::Equal),
-                            CmpOp::Eq => matches!(ord, Ordering::Equal),
-                            CmpOp::NotEq => !matches!(ord, Ordering::Equal),
-                        };
-
-                        return Ok(result.into());
-                    }
-                    InfixOp::Add => BinOp::Add,
-                    InfixOp::Sub => BinOp::Sub,
-                    InfixOp::Mul => BinOp::Mul,
-                    InfixOp::Div => BinOp::Div,
-                    InfixOp::Mod => BinOp::Mod,
-                    InfixOp::BitAnd => BinOp::BitAnd,
-                    InfixOp::BitOr => BinOp::BitOr,
-                    InfixOp::Xor => BinOp::Xor,
-                    InfixOp::Shr => BinOp::Shr,
-                    InfixOp::Shl => BinOp::Shl,
-                };
-
-                let lhs_span = lhs.span;
-                let lhs = self.eval(lhs)?;
-                let rhs = self.eval(rhs)?;
-
-                let registry = self.engine.types().get(&lhs, lhs_span)?;
-
-                let Some(binop) = registry.get_bin_op(op, rhs.type_id()) else {
-                    return Err(EvalError::InvalidBinOp {
-                        op,
-                        span: op_span,
-                        lhs: lhs.type_name_of().into(),
-                        rhs: rhs.type_name_of().into(),
-                    });
-                };
-
-                binop.apply(
-                    lhs.clone(),
-                    rhs,
-                    CallContext::new(op_span, lhs, self.clone()),
-                )
-            }
+            } => self.eval_infix(op, op_span, *operands),
             Ast::PostfixOp { op, operand, .. } => {
                 let span = operand.span;
                 let operand = self.eval(*operand)?;
@@ -720,6 +548,299 @@ impl Scope {
                 Ok(Object(inner.into()).into())
             }
         }
+    }
+
+    fn eval_infix(
+        self: &Rc<Self>,
+        op: InfixOp,
+        op_span: Span,
+        (lhs, rhs): (Expr, Expr),
+    ) -> EvalResult<ValueRef> {
+        if op == InfixOp::Assign {
+            let rhs_span = rhs.span;
+            let rhs = self.eval(rhs)?;
+            return match lhs.ast {
+                Ast::Variable(var) => {
+                    self.set_variable(var, rhs_span, rhs)?;
+                    Ok(ValueRef::null())
+                }
+                Ast::FieldAccess { value, field: name } => {
+                    let value_span = value.span;
+                    let obj = self.eval(*value)?;
+
+                    let reg = self.engine.get_type(&obj, value_span)?;
+                    if let Some(field) = reg.get_field(&name.inner) {
+                        if let Some(ref setter) = field.setter {
+                            setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
+                        } else {
+                            return Err(EvalError::ReadonlyField {
+                                field: name.clone(),
+                            });
+                        }
+                    } else {
+                        reg.field_set_fallback.set(
+                            CallContext::new(name.span, obj, self.clone()),
+                            name,
+                            rhs,
+                        )?;
+                    }
+
+                    Ok(ValueRef::null())
+                }
+                Ast::Index {
+                    value,
+                    index,
+                    question,
+                } => {
+                    if let Some(question) = question {
+                        return Err(EvalError::InvalidQuestion { span: question });
+                    }
+                    let span = index.span;
+                    let ctx = registry::SetIndexCtx {
+                        rhs_span,
+                        index_span: index.span,
+                    };
+                    let value = self.eval(*value)?;
+                    let index = self.eval(*index)?;
+                    let indexer = self.engine.get_index(&value, &index, span)?;
+                    let setter =
+                        indexer
+                            .setter
+                            .as_ref()
+                            .ok_or_else(|| EvalError::ReadonlyIndex {
+                                ty: value.type_name_of().into(),
+                                index: index.type_name_of().into(),
+                                span,
+                            })?;
+                    setter.set(
+                        index,
+                        rhs,
+                        CallContext::new_ext(span, value.clone(), self.clone(), ctx),
+                    )?;
+
+                    Ok(ValueRef::null())
+                }
+                _ => Err(EvalError::InvalidAssignment {
+                    span: op_span,
+                    lhs_span: lhs.span,
+                }),
+            };
+        } else if let Some(inner) = op.strip_assign() {
+            let lhs_span = lhs.span;
+            let rhs_span = rhs.span;
+            match lhs.ast {
+                Ast::Variable(var) => {
+                    let lhs = self.expect_variable(&var)?;
+                    let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
+                    self.set_variable(var, rhs_span, rhs)?;
+                }
+                Ast::FieldAccess { value, field: name } => {
+                    let value_span = value.span;
+                    let obj = self.eval(*value)?;
+
+                    let reg = self.engine.get_type(&obj, value_span)?;
+                    if let Some(field) = reg.get_field(&name.inner) {
+                        if let Some(ref setter) = field.setter {
+                            let lhs = field.getter.get(CallContext::new(
+                                name.span,
+                                obj.clone(),
+                                self.clone(),
+                            ))?;
+                            let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
+                            setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
+                        } else {
+                            return Err(EvalError::ReadonlyField {
+                                field: name.clone(),
+                            });
+                        }
+                    } else {
+                        let lhs = reg.field_get_fallback.get(
+                            CallContext::new(name.span, obj.clone(), self.clone()),
+                            name.clone(),
+                        )?;
+                        let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
+                        reg.field_set_fallback.set(
+                            CallContext::new(name.span, obj, self.clone()),
+                            name,
+                            rhs,
+                        )?;
+                    }
+                }
+                Ast::Index {
+                    value,
+                    index,
+                    question,
+                } => {
+                    if let Some(question) = question {
+                        return Err(EvalError::InvalidQuestion { span: question });
+                    }
+                    let index_span = index.span;
+                    let ctx = registry::SetIndexCtx {
+                        rhs_span,
+                        index_span,
+                    };
+                    let value = self.eval(*value)?;
+                    let index = self.eval(*index)?;
+                    let indexer = self.engine.get_index(&value, &index, index_span)?;
+
+                    let Some(lhs) = indexer.getter.get(
+                        index.clone(),
+                        CallContext::new_ext(
+                            index_span,
+                            value.clone(),
+                            self.clone(),
+                            registry::GetIndexCtx { index_span },
+                        ),
+                    )?
+                    else {
+                        return Err(EvalError::MissingIndex {
+                            value: value.type_name_of().into(),
+                            index: index.display().to_string(),
+                            span: index_span,
+                        });
+                    };
+                    let rhs = self.eval_infix_op(op, op_span, lhs, lhs_span, rhs)?;
+
+                    let setter =
+                        indexer
+                            .setter
+                            .as_ref()
+                            .ok_or_else(|| EvalError::ReadonlyIndex {
+                                ty: value.type_name_of().into(),
+                                index: index.type_name_of().into(),
+                                span: index_span,
+                            })?;
+                    setter.set(
+                        index,
+                        rhs,
+                        CallContext::new_ext(index_span, value.clone(), self.clone(), ctx),
+                    )?;
+                }
+                _ => {
+                    return Err(EvalError::InvalidAssignment {
+                        span: op_span,
+                        lhs_span: lhs.span,
+                    });
+                }
+            };
+            return Ok(ValueRef::null());
+        }
+
+        let lhs_span = lhs.span;
+        let lhs = self.eval(lhs)?;
+
+        self.eval_infix_op(op, op_span, lhs, lhs_span, rhs)
+    }
+
+    fn eval_infix_op(
+        self: &Rc<Self>,
+        op: InfixOp,
+        op_span: Span,
+        lhs: ValueRef,
+        lhs_span: Span,
+        rhs: Expr,
+    ) -> EvalResult<ValueRef> {
+        let op = match op {
+            InfixOp::OrAssign
+            | InfixOp::AndAssign
+            | InfixOp::AddAssign
+            | InfixOp::SubAssign
+            | InfixOp::MulAssign
+            | InfixOp::DivAssign
+            | InfixOp::ModAssign
+            | InfixOp::BitAndAssign
+            | InfixOp::BitOrAssign
+            | InfixOp::XorAssign
+            | InfixOp::ShlAssign
+            | InfixOp::ShrAssign
+            | InfixOp::Assign => unreachable!("handled above"),
+            InfixOp::Or => {
+                if lhs.value().truthy() {
+                    return Ok(lhs);
+                } else {
+                    return self.eval(rhs);
+                }
+            }
+            InfixOp::And => {
+                if lhs.value().truthy() {
+                    return self.eval(rhs);
+                } else {
+                    return Ok(lhs);
+                }
+            }
+            InfixOp::Cmp(cmp) => {
+                let rhs_span = rhs.span;
+                let rhs = self.eval(rhs)?;
+
+                let ord = if let registry = self.engine.types().get(&lhs, lhs_span)?
+                    && let Some(cmp) = registry.get_cmp(Some(rhs.type_id()))
+                    && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
+                {
+                    ord
+                } else if let registry = self.engine.types().get(&rhs, rhs_span)?
+                    && let Some(cmp) = registry.get_cmp(Some(lhs.type_id()))
+                    && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
+                {
+                    ord.reverse()
+                } else if let registry = self.engine.types().get(&lhs, lhs_span)?
+                    && let Some(cmp) = registry.get_cmp(None)
+                    && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
+                {
+                    ord
+                } else if let registry = self.engine.types().get(&rhs, rhs_span)?
+                    && let Some(cmp) = registry.get_cmp(None)
+                    && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
+                {
+                    ord.reverse()
+                } else {
+                    return Err(EvalError::InvalidCmp {
+                        lhs: lhs.type_name_of().into(),
+                        rhs: rhs.type_name_of().into(),
+                        span: op_span,
+                    });
+                };
+
+                let result = match cmp {
+                    CmpOp::Lt => matches!(ord, Ordering::Less),
+                    CmpOp::Lte => matches!(ord, Ordering::Less | Ordering::Equal),
+                    CmpOp::Gt => matches!(ord, Ordering::Greater),
+                    CmpOp::Gte => matches!(ord, Ordering::Greater | Ordering::Equal),
+                    CmpOp::Eq => matches!(ord, Ordering::Equal),
+                    CmpOp::NotEq => !matches!(ord, Ordering::Equal),
+                };
+
+                return Ok(result.into());
+            }
+            InfixOp::Add => BinOp::Add,
+            InfixOp::Sub => BinOp::Sub,
+            InfixOp::Mul => BinOp::Mul,
+            InfixOp::Div => BinOp::Div,
+            InfixOp::Mod => BinOp::Mod,
+            InfixOp::BitAnd => BinOp::BitAnd,
+            InfixOp::BitOr => BinOp::BitOr,
+            InfixOp::Xor => BinOp::Xor,
+            InfixOp::Shr => BinOp::Shr,
+            InfixOp::Shl => BinOp::Shl,
+        };
+
+        let rhs = self.eval(rhs)?;
+
+        let registry = self.engine.types().get(&lhs, lhs_span)?;
+
+        let Some(binop) = registry.get_bin_op(op, rhs.type_id()) else {
+            return Err(EvalError::InvalidBinOp {
+                op,
+                span: op_span,
+                lhs: lhs.type_name_of().into(),
+                rhs: rhs.type_name_of().into(),
+            });
+        };
+
+        binop.apply(
+            lhs.clone(),
+            rhs,
+            CallContext::new(op_span, lhs, self.clone()),
+        )
     }
 
     fn eval_string(self: &Rc<Self>, string: StringExpr) -> EvalResult<IStr> {

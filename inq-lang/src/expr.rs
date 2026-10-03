@@ -98,34 +98,58 @@ pub enum CmpOp {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, derive_more::Display)]
 pub enum InfixOp {
+    #[display("{_0}")]
+    Cmp(CmpOp),
     #[display("=")]
     Assign,
     #[display("||")]
     Or,
+    #[display("||=")]
+    OrAssign,
     #[display("&&")]
     And,
-    #[display("{_0}")]
-    Cmp(CmpOp),
+    #[display("&&=")]
+    AndAssign,
     #[display("+")]
     Add,
+    #[display("+=")]
+    AddAssign,
     #[display("-")]
     Sub,
+    #[display("-=")]
+    SubAssign,
     #[display("*")]
     Mul,
+    #[display("*=")]
+    MulAssign,
     #[display("/")]
     Div,
+    #[display("/=")]
+    DivAssign,
     #[display("%")]
     Mod,
+    #[display("%=")]
+    ModAssign,
     #[display("&&")]
     BitAnd,
+    #[display("&&=")]
+    BitAndAssign,
     #[display("|")]
     BitOr,
+    #[display("|=")]
+    BitOrAssign,
     #[display("^")]
     Xor,
+    #[display("^=")]
+    XorAssign,
     #[display("<<")]
     Shl,
+    #[display("<<=")]
+    ShlAssign,
     #[display(">>")]
     Shr,
+    #[display(">>=")]
+    ShrAssign,
 }
 
 impl InfixOp {
@@ -140,24 +164,48 @@ impl InfixOp {
             TokenTreeInner::Punct(Punct::GtEq) => Some(Self::Cmp(CmpOp::Gte)),
             // TokenTreeInner::Punct(Punct::DotDot | Punct::DotDotEq) => Some((4, 5)),
             TokenTreeInner::Punct(Punct::Plus) => Some(Self::Add),
+            TokenTreeInner::Punct(Punct::PlusEq) => Some(Self::AddAssign),
             TokenTreeInner::Punct(Punct::Minus) => Some(Self::Sub),
+            TokenTreeInner::Punct(Punct::MinusEq) => Some(Self::SubAssign),
             TokenTreeInner::Punct(Punct::Star) => Some(Self::Mul),
+            TokenTreeInner::Punct(Punct::StarEq) => Some(Self::MulAssign),
             TokenTreeInner::Punct(Punct::Slash) => Some(Self::Div),
+            TokenTreeInner::Punct(Punct::SlashEq) => Some(Self::DivAssign),
             TokenTreeInner::Punct(Punct::PipePipe) => Some(Self::Or),
+            TokenTreeInner::Punct(Punct::PipePipeEq) => Some(Self::OrAssign),
             TokenTreeInner::Punct(Punct::AndAnd) => Some(Self::And),
+            TokenTreeInner::Punct(Punct::AndAndEq) => Some(Self::AndAssign),
             TokenTreeInner::Punct(Punct::Percent) => Some(Self::Mod),
+            TokenTreeInner::Punct(Punct::PercentEq) => Some(Self::ModAssign),
             TokenTreeInner::Punct(Punct::And) => Some(Self::BitAnd),
+            TokenTreeInner::Punct(Punct::AndEq) => Some(Self::BitAndAssign),
             TokenTreeInner::Punct(Punct::Pipe) => Some(Self::BitOr),
+            TokenTreeInner::Punct(Punct::PipeEq) => Some(Self::BitOrAssign),
             TokenTreeInner::Punct(Punct::Caret) => Some(Self::Xor),
+            TokenTreeInner::Punct(Punct::CaretEq) => Some(Self::XorAssign),
             TokenTreeInner::Punct(Punct::LtLt) => Some(Self::Shl),
+            TokenTreeInner::Punct(Punct::LtLtEq) => Some(Self::ShlAssign),
             TokenTreeInner::Punct(Punct::GtGt) => Some(Self::Shr),
+            TokenTreeInner::Punct(Punct::GtGtEq) => Some(Self::ShrAssign),
             _ => None,
         }
     }
 
     fn bp(self) -> (u8, u8) {
         match self {
-            InfixOp::Assign => (0, 1),
+            InfixOp::OrAssign
+            | InfixOp::AndAssign
+            | InfixOp::AddAssign
+            | InfixOp::SubAssign
+            | InfixOp::MulAssign
+            | InfixOp::DivAssign
+            | InfixOp::ModAssign
+            | InfixOp::BitAndAssign
+            | InfixOp::BitOrAssign
+            | InfixOp::XorAssign
+            | InfixOp::ShlAssign
+            | InfixOp::ShrAssign
+            | InfixOp::Assign => (1, 0),
             InfixOp::Or => (2, 3),
             InfixOp::And => (4, 5),
             InfixOp::BitOr => (6, 7),
@@ -168,6 +216,38 @@ impl InfixOp {
             // TokenTree::Punct(Punct::DotDot | Punct::DotDotEq) => Some((6, 7)),
             InfixOp::Add | InfixOp::Sub => (16, 17),
             InfixOp::Mul | InfixOp::Div | InfixOp::Mod => (18, 19),
+        }
+    }
+
+    /// Convert from an assign operator to the normal form (`AddAssign` => `Add`)
+    pub(crate) fn strip_assign(&self) -> Option<Self> {
+        match self {
+            Self::Cmp(_) => None,
+            Self::Assign => None,
+            Self::Or => None,
+            Self::OrAssign => Some(Self::Or),
+            Self::And => None,
+            Self::AndAssign => Some(Self::And),
+            Self::Add => None,
+            Self::AddAssign => Some(Self::Add),
+            Self::Sub => None,
+            Self::SubAssign => Some(Self::Sub),
+            Self::Mul => None,
+            Self::MulAssign => Some(Self::Mul),
+            Self::Div => None,
+            Self::DivAssign => Some(Self::Div),
+            Self::Mod => None,
+            Self::ModAssign => Some(Self::Mod),
+            Self::BitAnd => None,
+            Self::BitAndAssign => Some(Self::BitAnd),
+            Self::BitOr => None,
+            Self::BitOrAssign => Some(Self::BitOr),
+            Self::Xor => None,
+            Self::XorAssign => Some(Self::Xor),
+            Self::Shl => None,
+            Self::ShlAssign => Some(Self::Shl),
+            Self::Shr => None,
+            Self::ShrAssign => Some(Self::Shr),
         }
     }
 }

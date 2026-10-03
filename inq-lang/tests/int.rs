@@ -7,10 +7,8 @@ use inq_lang::{
 #[test]
 fn literals() {
     let e = Engine::new();
-    let x = eval_expr!(e, 34 + 35);
-
-    let f = x.unwrap::<Int>();
-    assert_eq!(f, 69);
+    assert_value!(e, 34 => (as Int) 34);
+    assert_value!(e, 35 => (as Int) 35);
 }
 
 #[test]

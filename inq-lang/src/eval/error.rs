@@ -88,7 +88,6 @@ pub enum EvalError {
     },
     #[error("This field is read-only")]
     ReadonlyField {
-        ty: String,
         #[label = "this field"]
         field: Ident,
     },
