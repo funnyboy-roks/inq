@@ -21,7 +21,7 @@ contexts:
       scope: punctuation.definition.annotation.inq
       push: attribute
 
-    - match: '\b(let|if|then|else|route|before|request|after|response)\b'
+    - match: '\b(let|if|then|else|route|before|request|after|response|fn)\b'
       scope: keyword.control.inq
 
     # Numbers

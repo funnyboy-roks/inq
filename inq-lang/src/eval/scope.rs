@@ -16,12 +16,13 @@ use crate::{
         registry::{self, BinOp, FnCtx, Function, FunctionValue, UnaryOp, VarArgs},
         value::{
             CallContext, ValueRef,
+            function::UserFunction,
             native::{Array, Null, Object},
             ty::TypeValue,
         },
     },
     expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectFieldKV},
-    parse::StringExpr,
+    parse::{FunctionItem, StringExpr},
     util::OptionNonExhaustive,
 };
 
@@ -163,6 +164,14 @@ impl Scope {
         this.into()
     }
 
+    /// Make a new scope that inherits the "special" field from this scope, but does not use this as
+    /// a parent.
+    pub fn make_isolated_child(self: &Rc<Self>) -> Rc<Self> {
+        let mut this = Self::new(self.engine.clone());
+        this.special = RefCell::new(self.special().unwrap_or_default());
+        this.into()
+    }
+
     /// Get a variable in the local scope, without going up at all
     pub(crate) fn get_local_variable(&self, name: &str) -> Option<Variable> {
         self.variables.borrow().get(name).cloned()
@@ -248,6 +257,19 @@ impl Scope {
             value: LazyValueRef::from_value(Span::empty(), FunctionValue::new(func).into()),
             readonly: true,
             on_resolve: identity_mapper,
+        });
+    }
+
+    pub fn declare_function_item(self: &Rc<Self>, func: FunctionItem) {
+        self.declare_variable(Variable {
+            name: func.name.as_istr(),
+            def: Some(func.name.clone()),
+            value: LazyValueRef::from_value(
+                func.name.span,
+                ValueRef::new(UserFunction::new(func, self.clone())),
+            ),
+            readonly: true,
+            on_resolve: |_, _| unreachable!(),
         });
     }
 

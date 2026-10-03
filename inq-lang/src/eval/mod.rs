@@ -22,6 +22,7 @@ use crate::{
         registry::{AnyRegistry, FunctionValue, Indexer, Registry},
         value::{
             Value, ValueRef,
+            function::UserFunction,
             native::{Array, Float, Int, Null, Object},
             ty::TypeValue,
         },
@@ -97,6 +98,7 @@ impl Engine {
         self.register_type::<Array>();
         self.register_type::<Object>();
         self.register_type::<FunctionValue>();
+        self.register_type::<UserFunction>();
     }
 
     pub fn register_type<V: Value>(self: &Rc<Self>) {

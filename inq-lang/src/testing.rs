@@ -95,3 +95,20 @@ macro_rules! assert_error {
         assert_matches!(f, $err);
     };
 }
+
+#[macro_export]
+macro_rules! assert_err_is_variant {
+    ($err:expr, $enum:ident :: $variant:ident) => {
+        #[expect(unused)]
+        fn variant_exists() {
+            #[allow(clippy::diverging_sub_expression)]
+            let x: $enum = todo!();
+            #[expect(unused)]
+            match x {
+                $enum::$variant { .. } => {}
+                _ => {}
+            }
+        }
+        assert!(dbg!(format!("{:#?}", $err.root_cause())).contains(stringify!($variant)));
+    };
+}

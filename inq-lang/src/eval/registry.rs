@@ -116,6 +116,14 @@ impl VarArgs {
             expected: expected.into_iter().map(Into::into).collect(),
         })
     }
+
+    pub(crate) fn error_n<T>(&self, ctx: &CallContext<FnCtx>, expected: usize) -> EvalResult<T> {
+        Err(EvalError::InvalidArgCount {
+            span: ctx.span(),
+            got: self.inner.len(),
+            expected,
+        })
+    }
 }
 
 pub trait FromVarArgs: Sized {

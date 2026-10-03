@@ -18,6 +18,7 @@ use crate::{
     },
 };
 
+pub(crate) mod function;
 /// Native types
 pub mod native;
 pub mod ty;

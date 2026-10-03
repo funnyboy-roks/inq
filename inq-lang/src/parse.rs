@@ -56,6 +56,14 @@ pub enum ParseError {
         #[label(primary, "duplicate defined here")]
         current: Span,
     },
+    #[error("Function argument names must be unique")]
+    DuplicateFnArg {
+        name: String,
+        #[label("previously defined here")]
+        previous: Span,
+        #[label(primary, "duplicate defined here")]
+        current: Span,
+    },
 }
 
 impl ParseError {
@@ -631,10 +639,110 @@ impl Parse for VariableItem {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub enum FunctionWith {
+    Request,
+    Response,
+}
+
+impl Parse for (FunctionWith, Span) {
+    fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
+        let mut la = tokens.lookahead();
+        if la.peek(Keyword::Request) {
+            let t = tokens.expect(Keyword::Request)?;
+            Ok((FunctionWith::Request, t.span))
+        } else if la.peek(Keyword::Response) {
+            let t = tokens.expect(Keyword::Response)?;
+            Ok((FunctionWith::Response, t.span))
+        } else {
+            la.error()
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct FunctionItem {
+    pub name: Ident,
+    pub args: Vec<Ident>,
+    pub body: Expr,
+    pub with: Option<(FunctionWith, Span)>,
+}
+
+impl FunctionItem {
+    fn parse_args(mut tokens: TokenStream) -> Result<Vec<Ident>, ParseError> {
+        let mut out = Vec::<Ident>::new();
+
+        loop {
+            if tokens.is_empty() {
+                break;
+            }
+            let name: Ident = tokens.parse()?;
+
+            for e in &out {
+                if e.inner == name.inner {
+                    return Err(ParseError::DuplicateFnArg {
+                        name: name.inner.to_string(),
+                        previous: e.span,
+                        current: name.span,
+                    });
+                }
+            }
+
+            out.push(name);
+
+            let mut la = tokens.lookahead();
+            if la.peek(Punct::Comma) {
+                tokens.expect(Punct::Comma)?;
+            } else if la.eof("End of arguments") {
+            } else {
+                return la.error();
+            }
+        }
+
+        Ok(out)
+    }
+}
+
+impl Parse for FunctionItem {
+    fn parse(tokens: &mut TokenStream) -> Result<Self, ParseError> {
+        tokens.expect(Keyword::Fn)?;
+        let name = tokens.parse()?;
+        let args = tokens.expect_group(GroupDelim::Paren)?;
+        let args = Self::parse_args(args)?;
+
+        let with = if tokens.next_if(Keyword::With).is_some() {
+            Some(tokens.parse()?)
+        } else {
+            None
+        };
+
+        let mut la = tokens.lookahead();
+        let body = if la.peek(GroupDelim::Brace) {
+            let block: Block = tokens.parse()?;
+            Expr::from(block)
+        } else if la.peek(Punct::Arrow) {
+            let _arrow = tokens.expect(Punct::Arrow)?;
+            let expr = tokens.parse()?;
+            let _semi = tokens.expect(Punct::Semicolon)?;
+            expr
+        } else {
+            return la.error();
+        };
+
+        Ok(Self {
+            name,
+            args,
+            body,
+            with,
+        })
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum Item {
     Variable(VariableItem),
     Route(Route),
+    Function(FunctionItem),
 }
 
 #[derive(Debug, Clone)]
@@ -667,6 +775,8 @@ impl Parser {
             })
         } else if la.peek(Keyword::Route) {
             Item::Route(self.tokens.parse()?)
+        } else if la.peek(Keyword::Fn) {
+            Item::Function(self.tokens.parse()?)
         } else if la.peek(Punct::Hash) {
             self.tokens.expect(Punct::Hash)?;
 

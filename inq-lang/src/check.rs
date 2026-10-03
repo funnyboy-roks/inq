@@ -11,7 +11,7 @@ use crate::{
     IStr, Ident, Item,
     eval::{EvalError, EvalResult, Scope, Special, Variable, value::ValueRef},
     expr::{Ast, Expr, InfixOp, ObjectFieldKV},
-    parse::Block,
+    parse::{Block, FunctionWith},
     util::OptionNonExhaustive,
 };
 
@@ -171,6 +171,23 @@ impl CheckScope {
                 self.check(&v.value)?;
                 self.declare_variable(&v.name);
             }
+            Item::Function(func) => {
+                let child = self.make_child();
+                match func.with {
+                    Some((FunctionWith::Request, _)) => {
+                        child.scope.set_special(Special::Request(ValueRef::null()))
+                    }
+                    Some((FunctionWith::Response, _)) => {
+                        child.scope.set_special(Special::Response(ValueRef::null()))
+                    }
+                    None => {}
+                }
+                for a in &func.args {
+                    child.declare_variable(a);
+                }
+                child.check(&func.body)?;
+                self.declare_variable(&func.name);
+            }
             Item::Route(route) => {
                 let child = self.make_child();
                 for a in &route.args {
@@ -239,6 +256,8 @@ impl CheckScope {
                             self.check(lhs)?;
                         }
                     };
+                } else {
+                    self.check(lhs)?;
                 }
             }
             Ast::PostfixOp { operand, .. } => self.check(operand)?,

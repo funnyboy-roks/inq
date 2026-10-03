@@ -79,6 +79,12 @@ pub enum EvalError {
         got: Vec<String>,
         expected: Vec<String>,
     },
+    #[error("Invalid number of arguments: expected {}, got {}", expected, got)]
+    InvalidArgCount {
+        span: Span,
+        got: usize,
+        expected: usize,
+    },
     #[error("Invalid left-hand side of assignment operator.  ")]
     InvalidAssignment {
         #[label(primary, "This assignment")]

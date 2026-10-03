@@ -65,6 +65,9 @@ impl Config {
                     self.engine.global().add_variable(v);
                 }
             }
+            Item::Function(f) => {
+                self.engine.global().declare_function_item(f);
+            }
             Item::Route(r) => self.routes.push(r),
         }
         Ok(())

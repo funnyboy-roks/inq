@@ -227,6 +227,8 @@ pub(crate) enum Keyword {
     True,
     False,
     Null,
+    Fn,
+    With,
     Method(Method),
 }
 
@@ -245,6 +247,8 @@ impl Keyword {
             "true"     => Keyword::True,
             "false"    => Keyword::False,
             "null"     => Keyword::Null,
+            "fn"       => Keyword::Fn,
+            "with"     => Keyword::With,
             "GET"      => Keyword::Method(Method::Get),
             "HEAD"     => Keyword::Method(Method::Head),
             "POST"     => Keyword::Method(Method::Post),
@@ -283,6 +287,8 @@ impl TokenKind for Keyword {
             Keyword::True => "`true`",
             Keyword::False => "`false`",
             Keyword::Null => "`null`",
+            Keyword::Fn => "`fn`",
+            Keyword::With => "`with`",
             Keyword::Method(m) => m.name(),
         }
     }

@@ -20,6 +20,7 @@ syn keyword inqResponse response
 syn keyword inqType String Int Float Bytes Array Duration DateTime Bool Object Cookie Faker Request Response Url HeaderMap Client Json
 
 syn keyword inqControlFlow if then else before after
+syn keyword inqFn fn
 
 syn match inqBool 'true\|false' display
 syn match inqNull 'null' display
@@ -67,6 +68,7 @@ let b:current_syntax = "inq"
 
 hi def link inqRoute           Keyword
 hi def link inqControlFlow     Keyword
+hi def link inqFn              Keyword
 hi def link inqLet             Keyword
 hi def link inqBool            Boolean
 hi def link inqNull            Constant

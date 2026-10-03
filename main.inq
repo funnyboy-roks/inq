@@ -2,7 +2,7 @@ let port = 3000;
 let BASE_URL = "http://localhost:$port";
 
 #[persist]
-let _cookie = "";
+let cookie = "";
 #[persist]
 let user = prompt("Username") || Faker.username();
 #[persist]
@@ -18,7 +18,7 @@ route login() => POST "/login"
     after {
         let cookie_header = Cookie.parse(response.headers["set-cookie"]);
         debug(cookie_header);
-        _cookie = cookie_header.value;
+        cookie = cookie_header.value;
     }
 
 route password_file => POST "/echo"
@@ -26,9 +26,12 @@ route password_file => POST "/echo"
         request.body = read_text_file("./password")
     }
 
+fn apply_auth() with request => request.headers["cookie"] = cookie;
+
 route raw => POST "/echo"
     before {
-        request.body = Bytes.from_hex("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
+        apply_auth();
+        request.body = Bytes.from_base64("dGhpcyBpcyBzb21lIGJpbmFyeSBkYXRhLCBub3QgbmVjZXNzYXJpbHkgdmFsaWQgdXRmLTg=");
     }
 
 route file => GET "/file"
