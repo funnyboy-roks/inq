@@ -10,7 +10,7 @@ use miette::{NamedSource, Severity};
 use crate::{
     IStr, Ident, Item,
     eval::{EvalError, EvalResult, Scope, Special, Variable, value::ValueRef},
-    expr::{Ast, Expr, InfixOp, ObjectField, ObjectFieldKV},
+    expr::{Ast, Expr, InfixOp, ObjectFieldKV},
     parse::Block,
     util::OptionNonExhaustive,
 };

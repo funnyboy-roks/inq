@@ -23,6 +23,7 @@ fn arithmetic() {
     assert_value!(e, 1.5 * 2.5  => 3.75);
     assert_value!(e, 1.5 - 2.5  => -1.0);
     assert_value!(e, 1.5 / 2.5  => 0.6);
+    assert_value!(e, 13.2 % 0.5 => |v: Float| (v - 0.2).abs() < 1e-6);
     assert_value!(e, -5.75      => -5.75);
     assert_value!(e, 1.5 || 2.5 => 1.5);
     assert_value!(e, 0.0 || 2.5 => 2.5);

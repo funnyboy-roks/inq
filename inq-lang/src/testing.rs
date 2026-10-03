@@ -58,9 +58,10 @@ macro_rules! assert_value {
         let f = x.unwrap::<$ty>();
         assert_eq!(f, $val);
     };
-    ($e:expr, $inq:expr =>~ $val:expr) => {{
+    ($e:expr, $inq:expr => |$v:ident: $ty:ty| $val:expr) => {{
         let x = $crate::eval_expr!($e, $inq);
-        assert_eq!(x, $val);
+        let f = x.unwrap();
+        assert!((|$v: $ty| $val)(f));
     }};
     ($e:expr, $inq:expr => $val:expr) => {{
         let x = $crate::eval_expr!($e, $inq);

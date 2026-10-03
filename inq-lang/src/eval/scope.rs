@@ -20,7 +20,7 @@ use crate::{
             ty::TypeValue,
         },
     },
-    expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectField, ObjectFieldKV},
+    expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectFieldKV},
     parse::StringExpr,
     util::OptionNonExhaustive,
 };
@@ -538,6 +538,12 @@ impl Scope {
                     InfixOp::Sub => BinOp::Sub,
                     InfixOp::Mul => BinOp::Mul,
                     InfixOp::Div => BinOp::Div,
+                    InfixOp::Mod => BinOp::Mod,
+                    InfixOp::BitAnd => BinOp::BitAnd,
+                    InfixOp::BitOr => BinOp::BitOr,
+                    InfixOp::Xor => BinOp::Xor,
+                    InfixOp::Shr => BinOp::Shr,
+                    InfixOp::Shl => BinOp::Shl,
                 };
 
                 let lhs_span = lhs.span;

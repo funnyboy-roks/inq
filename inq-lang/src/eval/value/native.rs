@@ -97,11 +97,19 @@ impl Value for Int {
         registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Self| lhs * rhs);
         registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Float| lhs as Float * rhs);
 
+        registry.register_bin_op(BinOp::Mod, |_, &lhs, &rhs: &Int| lhs % rhs);
+
         registry.register_bin_op(BinOp::Div, |ctx, &lhs, &rhs: &Self| {
             lhs.checked_div(rhs)
                 .ok_or(EvalError::Div0 { span: ctx.span() })
         });
         registry.register_bin_op(BinOp::Div, |_, &lhs, &rhs: &Float| lhs as Float / rhs);
+
+        registry.register_bin_op(BinOp::BitAnd, |_, &lhs, &rhs: &Int| lhs & rhs);
+        registry.register_bin_op(BinOp::BitOr, |_, &lhs, &rhs: &Int| lhs | rhs);
+        registry.register_bin_op(BinOp::Xor, |_, &lhs, &rhs: &Int| lhs ^ rhs);
+        registry.register_bin_op(BinOp::Shl, |_, &lhs, &rhs: &Int| lhs << rhs);
+        registry.register_bin_op(BinOp::Shr, |_, &lhs, &rhs: &Int| lhs >> rhs);
 
         registry.register_unary_op(UnaryOp::Prefix(PrefixOp::Neg), |_, &i| -i);
 
@@ -191,6 +199,8 @@ impl Value for Float {
         registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Self| lhs * rhs);
         registry.register_bin_op(BinOp::Mul, |_, &lhs, &rhs: &Int| lhs * rhs as Float);
 
+        registry.register_bin_op(BinOp::Mod, |_, &lhs, &rhs: &Self| lhs % rhs);
+
         registry.register_bin_op(BinOp::Div, |ctx, &lhs, &rhs: &Self| {
             if rhs == 0.0 {
                 Err(EvalError::Div0 { span: ctx.span() })
@@ -248,10 +258,13 @@ impl Value for bool {
         other.downcast_ref::<Self>().is_some_and(|v| v == self)
     }
 
-    fn register(_: &mut Registry<Self>)
+    fn register(registry: &mut Registry<Self>)
     where
         Self: Sized,
     {
+        registry.register_bin_op(BinOp::BitAnd, |_, &lhs, &rhs: &bool| lhs & rhs);
+        registry.register_bin_op(BinOp::BitOr, |_, &lhs, &rhs: &bool| lhs | rhs);
+        registry.register_bin_op(BinOp::Xor, |_, &lhs, &rhs: &bool| lhs ^ rhs);
     }
 }
 

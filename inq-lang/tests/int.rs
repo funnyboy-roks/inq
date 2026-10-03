@@ -5,7 +5,7 @@ use inq_lang::{
 };
 
 #[test]
-fn it_exists() {
+fn literals() {
     let e = Engine::new();
     let x = eval_expr!(e, 34 + 35);
 
@@ -21,9 +21,17 @@ fn arithmetic() {
     assert_value!(e, 15 - 25  => -10);
     assert_value!(e, 69 / 23  => 3);
     assert_value!(e, 69 / 20  => 3);
+    assert_value!(e, 13 % 5   => 3);
+    assert_value!(e, -13 % 5  => -3);
     assert_value!(e, -575     => -575);
     assert_value!(e, 15 || 25 => 15);
     assert_value!(e, 00 || 25 => 25);
+    assert_value!(e, 3 << 2   => 12);
+    assert_value!(e, 12 >> 2  => 3);
+    assert_value!(e, 7 & 5    => 5);
+    assert_value!(e, 2 | 4    => 6);
+    assert_value!(e, 5 ^ 4    => 1);
+    assert_value!(e, 5 ^ 10   => 15);
 }
 
 /// not exhaustive, but should have some coverage

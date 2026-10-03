@@ -35,6 +35,18 @@ pub enum BinOp {
     Mul,
     #[display("divide")]
     Div,
+    #[display("modulo")]
+    Mod,
+    #[display("bitwise and")]
+    BitAnd,
+    #[display("bitwise or")]
+    BitOr,
+    #[display("xor")]
+    Xor,
+    #[display("shift right")]
+    Shr,
+    #[display("shift left")]
+    Shl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, derive_more::Display)]
@@ -557,7 +569,10 @@ impl<T: Value> Registry<T> {
 
     /// Get a reference to the engine.  This can be used to recursively register types:
     ///
-    /// ```ignore
+    /// ```
+    /// # use inq_lang::eval::registry::Registry;
+    /// # type MyType = i64;
+    /// # type MyOtherType = i64;
     /// fn register(registry: &mut Registry<MyType>) {
     ///     registry.engine().register_type::<MyOtherType>();
     ///     // ...

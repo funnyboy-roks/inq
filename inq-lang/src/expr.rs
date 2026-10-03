@@ -114,6 +114,18 @@ pub enum InfixOp {
     Mul,
     #[display("/")]
     Div,
+    #[display("%")]
+    Mod,
+    #[display("&&")]
+    BitAnd,
+    #[display("|")]
+    BitOr,
+    #[display("^")]
+    Xor,
+    #[display("<<")]
+    Shl,
+    #[display(">>")]
+    Shr,
 }
 
 impl InfixOp {
@@ -133,6 +145,12 @@ impl InfixOp {
             TokenTreeInner::Punct(Punct::Slash) => Some(Self::Div),
             TokenTreeInner::Punct(Punct::PipePipe) => Some(Self::Or),
             TokenTreeInner::Punct(Punct::AndAnd) => Some(Self::And),
+            TokenTreeInner::Punct(Punct::Percent) => Some(Self::Mod),
+            TokenTreeInner::Punct(Punct::And) => Some(Self::BitAnd),
+            TokenTreeInner::Punct(Punct::Pipe) => Some(Self::BitOr),
+            TokenTreeInner::Punct(Punct::Caret) => Some(Self::Xor),
+            TokenTreeInner::Punct(Punct::LtLt) => Some(Self::Shl),
+            TokenTreeInner::Punct(Punct::GtGt) => Some(Self::Shr),
             _ => None,
         }
     }
@@ -142,13 +160,14 @@ impl InfixOp {
             InfixOp::Assign => (0, 1),
             InfixOp::Or => (2, 3),
             InfixOp::And => (4, 5),
-            InfixOp::Cmp(_) => (6, 7),
-            // TokenTree::Punct(Punct::EqEq | Punct::Lt | Punct::Lte | Punct::Gte | Punct::Gt) => {
-            //     Some((4, 5))
-            // }
+            InfixOp::BitOr => (6, 7),
+            InfixOp::Xor => (8, 9),
+            InfixOp::BitAnd => (10, 11),
+            InfixOp::Cmp(_) => (12, 13),
+            InfixOp::Shl | InfixOp::Shr => (14, 15),
             // TokenTree::Punct(Punct::DotDot | Punct::DotDotEq) => Some((6, 7)),
-            InfixOp::Add | InfixOp::Sub => (8, 9),
-            InfixOp::Mul | InfixOp::Div => (10, 11),
+            InfixOp::Add | InfixOp::Sub => (16, 17),
+            InfixOp::Mul | InfixOp::Div | InfixOp::Mod => (18, 19),
         }
     }
 }
