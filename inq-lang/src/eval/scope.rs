@@ -11,18 +11,19 @@ use indexmap::IndexMap;
 use crate::{
     IStr, Ident, Span, VariableItem,
     eval::{
-        Engine, EvalError, EvalResult,
+        Engine, EvalError, EvalResult, TypeRegistry,
+        call_stack::CallStack,
         lazy::{LazyValueRef, VariableMapper, identity_mapper},
-        registry::{self, BinOp, FnCtx, Function, FunctionValue, UnaryOp, VarArgs},
+        registry::{self, BinOp, FnCtx, Function, UnaryOp, VarArgs},
         value::{
             CallContext, ValueRef,
-            function::UserFunction,
+            function::{FunctionValue, UserFunction},
             native::{Array, Null, Object},
             ty::TypeValue,
         },
     },
-    expr::{Ast, CmpOp, Expr, InfixOp, Lit, ObjectFieldKV},
-    parse::{FunctionItem, StringExpr},
+    expr::{self, Ast, CmpOp, Expr, InfixOp, Lit, ObjectField, ObjectFieldKV},
+    parse::{Block, FunctionItem, StringExpr},
     util::OptionNonExhaustive,
 };
 
@@ -92,7 +93,7 @@ impl Variable {
         }
     }
 
-    /// Create a variable with a value.  Defaults to `null` if the value is None.
+    /// Create a variable with a value.
     ///
     /// This variable is _not_ readonly
     pub fn definition_resolved(ident: Ident, span: Span, value: ValueRef) -> Self {
@@ -106,7 +107,7 @@ impl Variable {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct Scope {
     parent: Option<Rc<Scope>>,
     variables: RefCell<HashMap<IStr, Variable>>,
@@ -161,14 +162,6 @@ impl Scope {
     pub fn make_child(self: &Rc<Self>) -> Rc<Self> {
         let mut this = Self::new(self.engine.clone());
         this.parent = Some(self.clone());
-        this.into()
-    }
-
-    /// Make a new scope that inherits the "special" field from this scope, but does not use this as
-    /// a parent.
-    pub fn make_isolated_child(self: &Rc<Self>) -> Rc<Self> {
-        let mut this = Self::new(self.engine.clone());
-        this.special = RefCell::new(self.special().unwrap_or_default());
         this.into()
     }
 
@@ -362,28 +355,30 @@ impl Scope {
 
 /// Evaluation
 impl Scope {
-    pub fn eval(self: &Rc<Self>, expr: Expr) -> EvalResult<ValueRef> {
-        match expr.ast {
-            Ast::String(string_expr) => Ok(self.eval_string(string_expr)?.into()),
-            Ast::Lit(lit) => match lit {
+    // NOTE: This is for public API only
+    pub fn eval(self: &Rc<Self>, expr: &Expr) -> EvalResult<ValueRef> {
+        self.eval_with_stack(&mut CallStack::new(), expr)
+    }
+    pub(crate) fn eval_with_stack(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        expr: &Expr,
+    ) -> EvalResult<ValueRef> {
+        if call_stack.depth() > CallStack::MAX_DEPTH {
+            return Err(EvalError::RecursionDepth { span: expr.span });
+        }
+        match &expr.ast {
+            Ast::String(string_expr) => Ok(call_stack
+                .without_change(|cs| self.eval_string(cs, string_expr))?
+                .into()),
+            Ast::Lit(lit) => match *lit {
                 Lit::Int(n) => Ok(ValueRef::new(n as i64)),
                 Lit::Float(f) => Ok(ValueRef::new(f)),
                 Lit::Bool(b) => Ok(ValueRef::new(b)),
-                Lit::Null => Ok(ValueRef::new(Null)),
+                Lit::Null => Ok(ValueRef::null()),
             },
-            Ast::Block(block) => {
-                let mut last = ValueRef::null();
-                let scope = self.make_child();
-                for e in block.exprs {
-                    last = scope.eval(e)?;
-                }
-                if block.ret {
-                    Ok(last)
-                } else {
-                    Ok(ValueRef::null())
-                }
-            }
-            Ast::Variable(ident) => self.expect_variable(&ident),
+            Ast::Block(block) => self.eval_block(call_stack, block),
+            Ast::Variable(ident) => self.expect_variable(ident),
             Ast::Request => self
                 .request()
                 .ok_or(EvalError::RequestInBadPosition { span: expr.span }),
@@ -394,373 +389,471 @@ impl Scope {
                 op,
                 op_span,
                 operand,
-            } => {
-                let operand = self.eval(*operand)?;
-                let op = match op {
-                    crate::expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
-                    crate::expr::PrefixOp::Not => {
-                        return Ok(operand.value().truthy().not().into());
-                    }
-                };
-                let Some(unary_op) = self.engine.types().get(&operand, op_span)?.get_unary_op(op)
-                else {
-                    return Err(EvalError::InvalidUnaryOp {
-                        op,
-                        span: op_span,
-                        operand: operand.type_name_of().into(),
-                    });
-                };
-                unary_op.apply(CallContext::new(op_span, operand, self.clone()))
-            }
+            } => self.eval_prefix_op(call_stack, *op, *op_span, operand),
             Ast::InfixOp {
                 op,
                 op_span,
                 operands,
-            } => self.eval_infix(op, op_span, *operands),
-            Ast::PostfixOp { op, operand, .. } => {
-                let span = operand.span;
-                let operand = self.eval(*operand)?;
-                match op {
-                    crate::expr::PostfixOp::AssertNotNull => {
-                        if operand.value().is::<Null>() {
-                            Err(EvalError::NotNullAssertion { span })
-                        } else {
-                            Ok(operand)
-                        }
-                    }
-                }
-            }
+            } => call_stack.without_change(|cs| self.eval_infix(cs, *op, *op_span, operands)),
+            Ast::PostfixOp { op, operand, .. } => self.eval_postfix_op(call_stack, *op, operand),
             Ast::Declare { var, value } => {
-                self.declare_variable(Variable::definition(self, var, value.map(|b| *b)));
+                self.declare_variable(Variable::definition(
+                    self,
+                    var.clone(),
+                    value.as_deref().cloned(),
+                ));
                 Ok(ValueRef::null())
             }
-            Ast::FieldAccess { value, field } => {
-                let value_span = value.span;
-                let obj = self.eval(*value)?;
-                let span = field.span;
-                let reg = self.engine.get_type(&obj, value_span)?;
-                if let Some(field) = reg.get_field(&field.inner) {
-                    field.getter.get(CallContext::new(span, obj, self.clone()))
-                } else {
-                    reg.field_get_fallback
-                        .get(CallContext::new(field.span, obj, self.clone()), field)
-                }
-            }
+            Ast::FieldAccess { value, field } => self.eval_field_access(call_stack, value, field),
             Ast::MethodCall {
                 value,
                 method,
                 args,
-            } => {
-                let value = self.eval(*value)?;
-
-                let mut arg_spans = Vec::with_capacity(args.len());
-                let mut eval_args = Vec::with_capacity(args.len());
-                for a in args {
-                    arg_spans.push(a.span);
-                    eval_args.push(self.make_child().eval(a)?);
-                }
-
-                let span = method.span;
-                let reg = self.engine.types().get(&value, span)?;
-                let ctx =
-                    CallContext::new_ext(span, value, self.clone(), registry::FnCtx { arg_spans });
-                reg.call_method(ctx, method, VarArgs::new(eval_args))
-            }
+            } => self.eval_method_call(call_stack, value, method, args),
             Ast::Index {
                 value,
                 index,
                 question,
-            } => {
-                let span = index.span;
-                let ctx_ext = registry::GetIndexCtx {
-                    index_span: index.span,
-                };
-                let value = self.eval(*value)?;
-                let index = self.make_child().eval(*index)?;
-                let idx = self.engine.get_index(&value, &index, span)?;
-                let v = idx.getter.get(
-                    index.clone(),
-                    CallContext::new_ext(span, value.clone(), self.clone(), ctx_ext),
-                )?;
-
-                if let Some(v) = v {
-                    Ok(v)
-                } else if question.is_some() {
-                    Ok(ValueRef::null())
-                } else {
-                    Err(EvalError::MissingIndex {
-                        value: value.type_name_of().into(),
-                        index: index.display().to_string(),
-                        span,
-                    })
-                }
-            }
+            } => self.eval_index(call_stack, value, index, question.as_ref()),
             Ast::FunctionCall { func, args, span } => {
-                let mut arg_spans = Vec::with_capacity(args.len());
-                let mut eval_args = Vec::with_capacity(args.len());
-                for a in args {
-                    arg_spans.push(a.span);
-                    eval_args.push(self.make_child().eval(a)?);
-                }
-                let func = self.eval(*func)?;
-                let reg = self.engine.get_type(&func, span)?;
-                if let Some(call) = &reg.call {
-                    call.call(
-                        VarArgs::new(eval_args),
-                        CallContext::new_ext(
-                            span,
-                            func.clone(),
-                            self.clone(),
-                            registry::FnCtx { arg_spans },
-                        ),
-                    )
-                } else {
-                    Err(EvalError::NotCallable {
-                        ty: func.type_name_of().into(),
-                        span,
-                    })
-                }
+                self.eval_function_call(call_stack, func, args, *span)
             }
             Ast::If {
                 condition,
                 then,
                 elze,
             } => {
-                let condition = self.make_child().eval(*condition)?;
+                let condition = call_stack
+                    .without_change(|cs| self.make_child().eval_with_stack(cs, condition))?;
                 if condition.value().truthy() {
-                    self.make_child().eval(*then)
+                    call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, then))
                 } else {
                     if let Some(elze) = elze {
-                        self.make_child().eval(*elze)
+                        call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, elze))
                     } else {
                         Ok(ValueRef::null())
                     }
                 }
             }
+            Ast::FunctionDef(func) => {
+                self.declare_function_item(func.clone());
+                Ok(ValueRef::null())
+            }
             Ast::ArrayLiteral { items } => items
-                .into_iter()
-                .map(|i| self.make_child().eval(i))
+                .iter()
+                .map(|i| call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, i)))
                 .collect::<Result<Array, _>>()
                 .map(Into::into),
-            Ast::ObjectLiteral { fields } => {
-                let mut inner = IndexMap::<IStr, ValueRef>::new();
-                for f in fields {
-                    if let Some(cond) = f.condition
-                        && !self.eval(cond)?.value().truthy()
-                    {
-                        continue; // skip this field
-                    }
-                    let (k, v) = match f.kv {
-                        ObjectFieldKV::Ident(ident) => {
-                            let s = ident.inner.clone();
-                            let val = self.expect_variable(&ident)?;
-                            (s, val)
-                        }
-                        ObjectFieldKV::IdentWithValue(ident, expr) => {
-                            (ident.inner, self.make_child().eval(expr)?)
-                        }
-                        ObjectFieldKV::String(string_expr, expr) => (
-                            self.eval_string(string_expr)?,
-                            self.make_child().eval(expr)?,
-                        ),
-                        ObjectFieldKV::StringValue(key, value) => (key, value),
-                    };
-                    inner.insert(k, v);
+            Ast::ObjectLiteral { fields } => self.eval_object_literal(call_stack, fields),
+        }
+    }
+
+    fn eval_block(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        block: &Block,
+    ) -> EvalResult<ValueRef> {
+        let mut last = ValueRef::null();
+        let scope = self.make_child();
+        for e in &block.exprs {
+            last = call_stack.without_change(|cs| scope.eval_with_stack(cs, e))?;
+        }
+        if block.ret {
+            Ok(last)
+        } else {
+            Ok(ValueRef::null())
+        }
+    }
+
+    fn eval_function_call(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        func: &Expr,
+        args: &[Expr],
+        span: Span,
+    ) -> EvalResult<ValueRef> {
+        let mut arg_spans = Vec::with_capacity(args.len());
+        let mut eval_args = Vec::with_capacity(args.len());
+        for a in args {
+            arg_spans.push(a.span);
+            eval_args
+                .push(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?);
+        }
+        let func = call_stack.without_change(|cs| self.eval_with_stack(cs, func))?;
+        let reg = self.engine.get_type(&func, span)?;
+        if let Some(call) = &reg.call {
+            call.call(
+                VarArgs::new(eval_args),
+                CallContext::new_ext(
+                    span,
+                    func.clone(),
+                    self.clone(),
+                    registry::FnCtx {
+                        arg_spans,
+                        call_stack,
+                    },
+                ),
+            )
+        } else {
+            Err(EvalError::NotCallable {
+                ty: func.type_name_of().into(),
+                span,
+            })
+        }
+    }
+
+    fn eval_index(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        value: &Expr,
+        index: &Expr,
+        question: Option<&Span>,
+    ) -> EvalResult<ValueRef> {
+        let span = index.span;
+        let ctx_ext = registry::GetIndexCtx {
+            index_span: index.span,
+        };
+        let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+        let index = call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, index))?;
+        let idx = self.engine.get_index(&value, &index, span)?;
+        let v = idx.getter.get(
+            index.clone(),
+            CallContext::new_ext(span, value.clone(), self.clone(), ctx_ext),
+        )?;
+
+        if let Some(v) = v {
+            Ok(v)
+        } else if question.is_some() {
+            Ok(ValueRef::null())
+        } else {
+            Err(EvalError::MissingIndex {
+                value: value.type_name_of().into(),
+                index: index.display().to_string(),
+                span,
+            })
+        }
+    }
+
+    fn eval_field_access(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        value: &Expr,
+        field: &Ident,
+    ) -> EvalResult<ValueRef> {
+        let value_span = value.span;
+        let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+        let span = field.span;
+        let reg = self.engine.get_type(&obj, value_span)?;
+        if let Some(field) = reg.get_field(&field.inner) {
+            field.getter.get(CallContext::new(span, obj, self.clone()))
+        } else {
+            reg.field_get_fallback.get(
+                CallContext::new(field.span, obj, self.clone()),
+                field.clone(),
+            )
+        }
+    }
+
+    fn eval_method_call(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        value: &Expr,
+        method: &Ident,
+        args: &[Expr],
+    ) -> EvalResult<ValueRef> {
+        let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+
+        let mut arg_spans = Vec::with_capacity(args.len());
+        let mut eval_args = Vec::with_capacity(args.len());
+        for a in args {
+            arg_spans.push(a.span);
+            eval_args
+                .push(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?);
+        }
+
+        let span = method.span;
+        let reg = self.engine.types().get(&value, span)?;
+        let ctx = CallContext::new_ext(
+            span,
+            value,
+            self.clone(),
+            registry::FnCtx {
+                arg_spans,
+                call_stack,
+            },
+        );
+        reg.call_method(ctx, method.clone(), VarArgs::new(eval_args))
+    }
+
+    fn eval_object_literal(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        fields: &[ObjectField],
+    ) -> EvalResult<ValueRef> {
+        let mut inner = IndexMap::<IStr, ValueRef>::new();
+        for f in fields {
+            if let Some(cond) = &f.condition
+                && !call_stack
+                    .without_change(|cs| self.eval_with_stack(cs, cond))?
+                    .value()
+                    .truthy()
+            {
+                continue; // skip this field
+            }
+            let (k, v) = match &f.kv {
+                ObjectFieldKV::Ident(ident) => {
+                    let s = ident.inner.clone();
+                    let val = self.expect_variable(ident)?;
+                    (s, val)
                 }
-                Ok(Object(inner.into()).into())
+                ObjectFieldKV::IdentWithValue(ident, expr) => (
+                    ident.inner.clone(),
+                    call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, expr))?,
+                ),
+                ObjectFieldKV::String(string_expr, expr) => (
+                    call_stack.without_change(|cs| self.eval_string(cs, string_expr))?,
+                    call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, expr))?,
+                ),
+                ObjectFieldKV::StringValue(key, value) => (key.clone(), value.clone()),
+            };
+            inner.insert(k, v);
+        }
+        Ok(Object(inner.into()).into())
+    }
+
+    fn eval_prefix_op(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        op: expr::PrefixOp,
+        op_span: Span,
+        operand: &Expr,
+    ) -> EvalResult<ValueRef> {
+        let operand = call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?;
+        let op = match op {
+            expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
+            expr::PrefixOp::Not => {
+                return Ok(operand.value().truthy().not().into());
+            }
+        };
+        let Some(unary_op) = self.engine.types().get(&operand, op_span)?.get_unary_op(op) else {
+            return Err(EvalError::InvalidUnaryOp {
+                op,
+                span: op_span,
+                operand: operand.type_name_of().into(),
+            });
+        };
+        unary_op.apply(CallContext::new(op_span, operand, self.clone()))
+    }
+
+    fn eval_assign(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        op_span: Span,
+        lhs: &Expr,
+        rhs: &Expr,
+    ) -> EvalResult<ValueRef> {
+        let rhs_span = rhs.span;
+        let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
+        match &lhs.ast {
+            Ast::Variable(var) => {
+                self.set_variable(var.clone(), rhs_span, rhs)?;
+            }
+            Ast::FieldAccess { value, field: name } => {
+                let value_span = value.span;
+                let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+
+                let reg = self.engine.get_type(&obj, value_span)?;
+                if let Some(field) = reg.get_field(&name.inner) {
+                    if let Some(ref setter) = field.setter {
+                        setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
+                    } else {
+                        return Err(EvalError::ReadonlyField {
+                            field: name.clone(),
+                        });
+                    }
+                } else {
+                    reg.field_set_fallback.set(
+                        CallContext::new(name.span, obj, self.clone()),
+                        name.clone(),
+                        rhs,
+                    )?;
+                }
+            }
+            Ast::Index {
+                value,
+                index,
+                question,
+            } => {
+                if let Some(question) = question {
+                    return Err(EvalError::InvalidQuestion { span: *question });
+                }
+                let span = index.span;
+                let ctx = registry::SetIndexCtx {
+                    rhs_span,
+                    index_span: index.span,
+                };
+                let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+                let index = call_stack.without_change(|cs| self.eval_with_stack(cs, index))?;
+                let indexer = self.engine.get_index(&value, &index, span)?;
+                let setter = indexer
+                    .setter
+                    .as_ref()
+                    .ok_or_else(|| EvalError::ReadonlyIndex {
+                        ty: value.type_name_of().into(),
+                        index: index.type_name_of().into(),
+                        span,
+                    })?;
+                setter.set(
+                    index,
+                    rhs,
+                    CallContext::new_ext(span, value.clone(), self.clone(), ctx),
+                )?;
+            }
+            _ => {
+                return Err(EvalError::InvalidAssignment {
+                    span: op_span,
+                    lhs_span: lhs.span,
+                });
             }
         }
+        Ok(ValueRef::null())
+    }
+
+    fn eval_compound_assign(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        inner: InfixOp,
+        op_span: Span,
+        lhs: &Expr,
+        rhs: &Expr,
+    ) -> EvalResult<ValueRef> {
+        let lhs_span = lhs.span;
+        let rhs_span = rhs.span;
+        match &lhs.ast {
+            Ast::Variable(var) => {
+                let lhs = self.expect_variable(var)?;
+                let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                self.set_variable(var.clone(), rhs_span, rhs)?;
+            }
+            Ast::FieldAccess { value, field: name } => {
+                let value_span = value.span;
+                let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+
+                let reg = self.engine.get_type(&obj, value_span)?;
+                if let Some(field) = reg.get_field(&name.inner) {
+                    if let Some(ref setter) = field.setter {
+                        let lhs = field.getter.get(CallContext::new(
+                            name.span,
+                            obj.clone(),
+                            self.clone(),
+                        ))?;
+                        let rhs =
+                            self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                        setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
+                    } else {
+                        return Err(EvalError::ReadonlyField {
+                            field: name.clone(),
+                        });
+                    }
+                } else {
+                    let lhs = reg.field_get_fallback.get(
+                        CallContext::new(name.span, obj.clone(), self.clone()),
+                        name.clone(),
+                    )?;
+                    let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                    reg.field_set_fallback.set(
+                        CallContext::new(name.span, obj, self.clone()),
+                        name.clone(),
+                        rhs,
+                    )?;
+                }
+            }
+            Ast::Index {
+                value,
+                index,
+                question,
+            } => {
+                if let Some(question) = question {
+                    return Err(EvalError::InvalidQuestion { span: *question });
+                }
+                let index_span = index.span;
+                let ctx = registry::SetIndexCtx {
+                    rhs_span,
+                    index_span,
+                };
+                let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+                let index = call_stack.without_change(|cs| self.eval_with_stack(cs, index))?;
+                let indexer = self.engine.get_index(&value, &index, index_span)?;
+
+                let Some(lhs) = indexer.getter.get(
+                    index.clone(),
+                    CallContext::new_ext(
+                        index_span,
+                        value.clone(),
+                        self.clone(),
+                        registry::GetIndexCtx { index_span },
+                    ),
+                )?
+                else {
+                    return Err(EvalError::MissingIndex {
+                        value: value.type_name_of().into(),
+                        index: index.display().to_string(),
+                        span: index_span,
+                    });
+                };
+                let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+
+                let setter = indexer
+                    .setter
+                    .as_ref()
+                    .ok_or_else(|| EvalError::ReadonlyIndex {
+                        ty: value.type_name_of().into(),
+                        index: index.type_name_of().into(),
+                        span: index_span,
+                    })?;
+                setter.set(
+                    index,
+                    rhs,
+                    CallContext::new_ext(index_span, value.clone(), self.clone(), ctx),
+                )?;
+            }
+            _ => {
+                return Err(EvalError::InvalidAssignment {
+                    span: op_span,
+                    lhs_span: lhs.span,
+                });
+            }
+        };
+        Ok(ValueRef::null())
     }
 
     fn eval_infix(
         self: &Rc<Self>,
+        call_stack: &mut CallStack,
         op: InfixOp,
         op_span: Span,
-        (lhs, rhs): (Expr, Expr),
+        (lhs, rhs): &(Expr, Expr),
     ) -> EvalResult<ValueRef> {
         if op == InfixOp::Assign {
-            let rhs_span = rhs.span;
-            let rhs = self.eval(rhs)?;
-            return match lhs.ast {
-                Ast::Variable(var) => {
-                    self.set_variable(var, rhs_span, rhs)?;
-                    Ok(ValueRef::null())
-                }
-                Ast::FieldAccess { value, field: name } => {
-                    let value_span = value.span;
-                    let obj = self.eval(*value)?;
-
-                    let reg = self.engine.get_type(&obj, value_span)?;
-                    if let Some(field) = reg.get_field(&name.inner) {
-                        if let Some(ref setter) = field.setter {
-                            setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
-                        } else {
-                            return Err(EvalError::ReadonlyField {
-                                field: name.clone(),
-                            });
-                        }
-                    } else {
-                        reg.field_set_fallback.set(
-                            CallContext::new(name.span, obj, self.clone()),
-                            name,
-                            rhs,
-                        )?;
-                    }
-
-                    Ok(ValueRef::null())
-                }
-                Ast::Index {
-                    value,
-                    index,
-                    question,
-                } => {
-                    if let Some(question) = question {
-                        return Err(EvalError::InvalidQuestion { span: question });
-                    }
-                    let span = index.span;
-                    let ctx = registry::SetIndexCtx {
-                        rhs_span,
-                        index_span: index.span,
-                    };
-                    let value = self.eval(*value)?;
-                    let index = self.eval(*index)?;
-                    let indexer = self.engine.get_index(&value, &index, span)?;
-                    let setter =
-                        indexer
-                            .setter
-                            .as_ref()
-                            .ok_or_else(|| EvalError::ReadonlyIndex {
-                                ty: value.type_name_of().into(),
-                                index: index.type_name_of().into(),
-                                span,
-                            })?;
-                    setter.set(
-                        index,
-                        rhs,
-                        CallContext::new_ext(span, value.clone(), self.clone(), ctx),
-                    )?;
-
-                    Ok(ValueRef::null())
-                }
-                _ => Err(EvalError::InvalidAssignment {
-                    span: op_span,
-                    lhs_span: lhs.span,
-                }),
-            };
+            return self.eval_assign(call_stack, op_span, lhs, rhs);
         } else if let Some(inner) = op.strip_assign() {
-            let lhs_span = lhs.span;
-            let rhs_span = rhs.span;
-            match lhs.ast {
-                Ast::Variable(var) => {
-                    let lhs = self.expect_variable(&var)?;
-                    let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
-                    self.set_variable(var, rhs_span, rhs)?;
-                }
-                Ast::FieldAccess { value, field: name } => {
-                    let value_span = value.span;
-                    let obj = self.eval(*value)?;
-
-                    let reg = self.engine.get_type(&obj, value_span)?;
-                    if let Some(field) = reg.get_field(&name.inner) {
-                        if let Some(ref setter) = field.setter {
-                            let lhs = field.getter.get(CallContext::new(
-                                name.span,
-                                obj.clone(),
-                                self.clone(),
-                            ))?;
-                            let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
-                            setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
-                        } else {
-                            return Err(EvalError::ReadonlyField {
-                                field: name.clone(),
-                            });
-                        }
-                    } else {
-                        let lhs = reg.field_get_fallback.get(
-                            CallContext::new(name.span, obj.clone(), self.clone()),
-                            name.clone(),
-                        )?;
-                        let rhs = self.eval_infix_op(inner, op_span, lhs, lhs_span, rhs)?;
-                        reg.field_set_fallback.set(
-                            CallContext::new(name.span, obj, self.clone()),
-                            name,
-                            rhs,
-                        )?;
-                    }
-                }
-                Ast::Index {
-                    value,
-                    index,
-                    question,
-                } => {
-                    if let Some(question) = question {
-                        return Err(EvalError::InvalidQuestion { span: question });
-                    }
-                    let index_span = index.span;
-                    let ctx = registry::SetIndexCtx {
-                        rhs_span,
-                        index_span,
-                    };
-                    let value = self.eval(*value)?;
-                    let index = self.eval(*index)?;
-                    let indexer = self.engine.get_index(&value, &index, index_span)?;
-
-                    let Some(lhs) = indexer.getter.get(
-                        index.clone(),
-                        CallContext::new_ext(
-                            index_span,
-                            value.clone(),
-                            self.clone(),
-                            registry::GetIndexCtx { index_span },
-                        ),
-                    )?
-                    else {
-                        return Err(EvalError::MissingIndex {
-                            value: value.type_name_of().into(),
-                            index: index.display().to_string(),
-                            span: index_span,
-                        });
-                    };
-                    let rhs = self.eval_infix_op(op, op_span, lhs, lhs_span, rhs)?;
-
-                    let setter =
-                        indexer
-                            .setter
-                            .as_ref()
-                            .ok_or_else(|| EvalError::ReadonlyIndex {
-                                ty: value.type_name_of().into(),
-                                index: index.type_name_of().into(),
-                                span: index_span,
-                            })?;
-                    setter.set(
-                        index,
-                        rhs,
-                        CallContext::new_ext(index_span, value.clone(), self.clone(), ctx),
-                    )?;
-                }
-                _ => {
-                    return Err(EvalError::InvalidAssignment {
-                        span: op_span,
-                        lhs_span: lhs.span,
-                    });
-                }
-            };
-            return Ok(ValueRef::null());
+            return self.eval_compound_assign(call_stack, inner, op_span, lhs, rhs);
         }
 
         let lhs_span = lhs.span;
-        let lhs = self.eval(lhs)?;
+        let lhs = call_stack.without_change(|cs| self.eval_with_stack(cs, lhs))?;
 
-        self.eval_infix_op(op, op_span, lhs, lhs_span, rhs)
+        self.eval_infix_op(call_stack, op, op_span, lhs, lhs_span, rhs)
     }
 
     fn eval_infix_op(
         self: &Rc<Self>,
+        call_stack: &mut CallStack,
         op: InfixOp,
         op_span: Span,
         lhs: ValueRef,
         lhs_span: Span,
-        rhs: Expr,
+        rhs: &Expr,
     ) -> EvalResult<ValueRef> {
         let op = match op {
             InfixOp::OrAssign
@@ -780,47 +873,26 @@ impl Scope {
                 if lhs.value().truthy() {
                     return Ok(lhs);
                 } else {
-                    return self.eval(rhs);
+                    return call_stack.without_change(|cs| self.eval_with_stack(cs, rhs));
                 }
             }
             InfixOp::And => {
                 if lhs.value().truthy() {
-                    return self.eval(rhs);
+                    return call_stack.without_change(|cs| self.eval_with_stack(cs, rhs));
                 } else {
                     return Ok(lhs);
                 }
             }
             InfixOp::Cmp(cmp) => {
                 let rhs_span = rhs.span;
-                let rhs = self.eval(rhs)?;
+                let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
 
-                let ord = if let registry = self.engine.types().get(&lhs, lhs_span)?
-                    && let Some(cmp) = registry.get_cmp(Some(rhs.type_id()))
-                    && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
-                {
-                    ord
-                } else if let registry = self.engine.types().get(&rhs, rhs_span)?
-                    && let Some(cmp) = registry.get_cmp(Some(lhs.type_id()))
-                    && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
-                {
-                    ord.reverse()
-                } else if let registry = self.engine.types().get(&lhs, lhs_span)?
-                    && let Some(cmp) = registry.get_cmp(None)
-                    && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
-                {
-                    ord
-                } else if let registry = self.engine.types().get(&rhs, rhs_span)?
-                    && let Some(cmp) = registry.get_cmp(None)
-                    && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
-                {
-                    ord.reverse()
-                } else {
-                    return Err(EvalError::InvalidCmp {
-                        lhs: lhs.type_name_of().into(),
-                        rhs: rhs.type_name_of().into(),
-                        span: op_span,
-                    });
-                };
+                let ord = Self::cmp(
+                    &self.engine.types(),
+                    op_span,
+                    (&lhs, lhs_span),
+                    (&rhs, rhs_span),
+                )?;
 
                 let result = match cmp {
                     CmpOp::Lt => matches!(ord, Ordering::Less),
@@ -845,7 +917,7 @@ impl Scope {
             InfixOp::Shl => BinOp::Shl,
         };
 
-        let rhs = self.eval(rhs)?;
+        let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
 
         let registry = self.engine.types().get(&lhs, lhs_span)?;
 
@@ -865,12 +937,74 @@ impl Scope {
         )
     }
 
-    fn eval_string(self: &Rc<Self>, string: StringExpr) -> EvalResult<IStr> {
+    fn cmp(
+        types: &TypeRegistry,
+        op_span: Span,
+        (lhs, lhs_span): (&ValueRef, Span),
+        (rhs, rhs_span): (&ValueRef, Span),
+    ) -> Result<Ordering, EvalError> {
+        let ord = if let registry = types.get(lhs, lhs_span)?
+            && let Some(cmp) = registry.get_cmp(Some(rhs.type_id()))
+            && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
+        {
+            ord
+        } else if let registry = types.get(rhs, rhs_span)?
+            && let Some(cmp) = registry.get_cmp(Some(lhs.type_id()))
+            && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
+        {
+            ord.reverse()
+        } else if let registry = types.get(lhs, lhs_span)?
+            && let Some(cmp) = registry.get_cmp(None)
+            && let Some(ord) = cmp.apply(lhs.clone(), rhs.clone())
+        {
+            ord
+        } else if let registry = types.get(rhs, rhs_span)?
+            && let Some(cmp) = registry.get_cmp(None)
+            && let Some(ord) = cmp.apply(rhs.clone(), lhs.clone())
+        {
+            ord.reverse()
+        } else {
+            return Err(EvalError::InvalidCmp {
+                lhs: lhs.type_name_of().into(),
+                rhs: rhs.type_name_of().into(),
+                span: op_span,
+            });
+        };
+        Ok(ord)
+    }
+
+    fn eval_postfix_op(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        op: expr::PostfixOp,
+        operand: &Expr,
+    ) -> EvalResult<ValueRef> {
+        let span = operand.span;
+        let operand = call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?;
+        match op {
+            expr::PostfixOp::AssertNotNull => {
+                if operand.value().is::<Null>() {
+                    Err(EvalError::NotNullAssertion { span })
+                } else {
+                    Ok(operand)
+                }
+            }
+        }
+    }
+
+    fn eval_string(
+        self: &Rc<Self>,
+        call_stack: &mut CallStack,
+        string: &StringExpr,
+    ) -> EvalResult<IStr> {
         let mut out = String::new();
         let mut last = 0;
-        for e in string.interpolations {
+        for e in &string.interpolations {
             out.push_str(&string.value[last..e.index]);
-            self.eval(e.expr)?.value().to_string(&mut out);
+            call_stack
+                .without_change(|cs| self.eval_with_stack(cs, &e.expr))?
+                .value()
+                .to_string(&mut out);
             last = e.index;
         }
         out.push_str(&string.value[last..]);

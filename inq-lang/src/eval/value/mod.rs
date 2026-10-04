@@ -1,15 +1,16 @@
 use std::{
     any::{Any, TypeId},
     borrow::Cow,
+    error::Error,
     fmt::{Debug, Display},
-    ops::Deref,
+    ops::{Deref, DerefMut},
     rc::Rc,
 };
 
 use crate::{
     IStr, Span,
     eval::{
-        EvalError, EvalResult, Scope,
+        Engine, EvalError, EvalResult, Scope,
         registry::{FnCtx, Registry},
         value::{
             native::{Float, Int, Null},
@@ -39,7 +40,7 @@ impl Primitive {
             () if let Some(r) = v.downcast_ref::<Int>() => Some(Self::Int(*r)),
             () if let Some(r) = v.downcast_ref::<Float>() => Some(Self::Float(*r)),
             () if let Some(r) = v.downcast_ref::<bool>() => Some(Self::Bool(*r)),
-            () if let Some(r) = v.downcast_ref::<Null>() => Some(Self::Null(r.clone())),
+            () if let Some(r) = v.downcast_ref::<Null>() => Some(Self::Null(*r)),
             () if let Some(r) = v.downcast_ref::<IStr>() => Some(Self::IStr(r.clone())),
             () if let Some(r) = v.downcast_ref::<TypeValue>() => Some(Self::Type(r.clone())),
             _ => None,
@@ -253,6 +254,10 @@ impl<T> CallContext<T> {
         self.scope.clone()
     }
 
+    pub fn engine(&self) -> Rc<Engine> {
+        self.scope.engine.clone()
+    }
+
     pub fn new_ext(span: Span, self_ref: ValueRef, scope: Rc<Scope>, ext: T) -> Self {
         Self {
             span,
@@ -269,9 +274,17 @@ impl<T> CallContext<T> {
             span: self.span(),
         }
     }
+
+    /// Create an error at the location of [`Self::span`]
+    pub fn wrap_error(&self, inner: impl Error + Send + Sync + 'static) -> EvalError {
+        EvalError::Wrapped {
+            span: self.span(),
+            inner: Box::new(inner),
+        }
+    }
 }
 
-impl CallContext<FnCtx> {
+impl CallContext<FnCtx<'_>> {
     /// Create an error pointing to a specific argument of this function call.
     ///
     /// Panics if arg is out of bounds for `arg_spans`
@@ -301,6 +314,11 @@ impl<T> Deref for CallContext<T> {
 
     fn deref(&self) -> &Self::Target {
         &self.ext
+    }
+}
+impl<T> DerefMut for CallContext<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ext
     }
 }
 

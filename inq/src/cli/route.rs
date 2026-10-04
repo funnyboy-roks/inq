@@ -153,7 +153,7 @@ fn handle_cli(scope: &Rc<Scope>, route_cmd: &RouteCommand, route: &Route) -> mie
         let value = if let Some(cli_arg) = cli_arg {
             cli_arg.into()
         } else if let Some(ref default_value) = arg.default_value {
-            scope.eval(default_value.clone())?
+            scope.eval(default_value)?
         } else {
             miette::bail! {
                 labels = vec![arg.name.span.with_label("this argument")],
@@ -194,7 +194,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
         let scope = scope.make_child();
         scope.set_special(Special::Request(ValueRef::from_ref(request.clone())));
 
-        scope.eval(before.clone().into())?;
+        scope.eval(&before.clone().into())?;
     }
 
     let req_body = request.body.borrow().clone();
@@ -214,7 +214,7 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
         let scope = scope.make_child();
         scope.set_special(Special::Response(ValueRef::new(res)));
 
-        scope.eval(after.clone().into())?;
+        scope.eval(&after.clone().into())?;
     }
 
     state.update_variables(&config)?;

@@ -639,9 +639,11 @@ impl Parse for VariableItem {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 pub enum FunctionWith {
+    #[display("request")]
     Request,
+    #[display("response")]
     Response,
 }
 
@@ -664,7 +666,7 @@ impl Parse for (FunctionWith, Span) {
 pub struct FunctionItem {
     pub name: Ident,
     pub args: Vec<Ident>,
-    pub body: Expr,
+    pub body: Box<Expr>,
     pub with: Option<(FunctionWith, Span)>,
 }
 
@@ -732,7 +734,7 @@ impl Parse for FunctionItem {
         Ok(Self {
             name,
             args,
-            body,
+            body: Box::new(body),
             with,
         })
     }

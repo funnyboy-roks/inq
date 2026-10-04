@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use miette::Diagnostic;
 use thiserror::Error;
 
@@ -175,9 +177,20 @@ pub enum EvalError {
         #[label = "here"]
         span: Span,
     },
+    #[error("Recursion depth exceeded")]
+    RecursionDepth {
+        #[label = "This function call"]
+        span: Span,
+    },
     #[error("{}", _0)]
     #[diagnostic(transparent)]
     Transparent(miette::Error),
+    #[error("{}", inner.description())]
+    Wrapped {
+        #[label = "this call"]
+        span: Span,
+        inner: Box<dyn Error + Send + Sync>,
+    },
 }
 
 impl From<miette::Report> for EvalError {

@@ -10,7 +10,7 @@ pub fn run_inner(content: &str) -> miette::Result<()> {
 
     let mut last = ValueRef::null();
     while let Some(e) = parser.take_expr()? {
-        last = engine.global().eval(e)?;
+        last = engine.global().eval(&e)?;
     }
 
     eprintln!("{:?}", last.debug());

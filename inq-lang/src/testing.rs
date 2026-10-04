@@ -17,7 +17,7 @@ pub fn eval_str(engine: Rc<Engine>, content: &str) -> EvalResult<ValueRef> {
         .map_err(|e| miette::Report::from(e).with_source_code(crate::source("literal", content)))
         .unwrap()
     {
-        last = engine.global().eval(e)?;
+        last = engine.global().eval(&e)?;
     }
 
     Ok(last)

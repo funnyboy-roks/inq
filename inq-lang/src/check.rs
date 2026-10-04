@@ -295,6 +295,23 @@ impl CheckScope {
                     self.check(elze)?;
                 }
             }
+            Ast::FunctionDef(func) => {
+                let child = self.make_child();
+                match func.with {
+                    Some((FunctionWith::Request, _)) => {
+                        child.scope.set_special(Special::Request(ValueRef::null()))
+                    }
+                    Some((FunctionWith::Response, _)) => {
+                        child.scope.set_special(Special::Response(ValueRef::null()))
+                    }
+                    None => {}
+                }
+                for a in &func.args {
+                    child.declare_variable(a);
+                }
+                child.check(&func.body)?;
+                self.declare_variable(&func.name);
+            }
             Ast::ArrayLiteral { items } => {
                 for a in items {
                     self.check(a)?;

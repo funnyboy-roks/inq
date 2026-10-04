@@ -61,7 +61,7 @@ impl LazyValueRef {
                 );
 
                 let span = expr.span;
-                let val = scope_snapshot.eval(expr)?;
+                let val = scope_snapshot.eval(&expr)?;
                 let val = mapper(span, val)?;
                 drop(guard);
                 let mut inner = self.inner.borrow_mut();

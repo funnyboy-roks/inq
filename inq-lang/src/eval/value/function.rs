@@ -1,25 +1,51 @@
-use std::{borrow::Cow, rc::Rc};
+use std::{
+    borrow::Cow,
+    rc::Rc,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use crate::{
     eval::{
         Scope, Variable,
+        call_stack::StackFrame,
         lazy::LazyValueRef,
-        registry::{Registry, VarArgs},
-        value::Value,
+        registry::{FnCtx, Function, Registry, VarArgs},
+        value::{CallContext, Value},
     },
     parse::FunctionItem,
 };
 
 use super::ValueRef;
 
+/// A unique identifier for every user-defined function
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct FunctionId {
+    inner: usize,
+}
+
+impl FunctionId {
+    fn new() -> Self {
+        // The identifier doesn't actually need to be specific, so a global counter seems fine
+        static GLOBAL: AtomicUsize = AtomicUsize::new(0);
+        Self {
+            inner: GLOBAL.fetch_add(1, Ordering::SeqCst),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct UserFunction {
+    id: FunctionId,
     func: FunctionItem,
     scope: Rc<Scope>,
 }
 impl UserFunction {
     pub fn new(func: FunctionItem, scope: Rc<Scope>) -> Self {
-        Self { func, scope }
+        Self {
+            id: FunctionId::new(),
+            func,
+            scope,
+        }
     }
 }
 
@@ -56,8 +82,8 @@ impl Value for UserFunction {
     where
         Self: Sized,
     {
-        registry.register_call::<fn(_, &_, VarArgs) -> _>(
-            |ctx, Self { func, scope }, mut varargs| {
+        registry.register_call::<fn(CallContext<FnCtx<'_>>, &_, VarArgs) -> _>(
+            |mut ctx, Self { id, func, scope }, mut varargs| {
                 if varargs.len() != func.args.len() {
                     return varargs.error_n(&ctx, func.args.len());
                 }
@@ -76,8 +102,66 @@ impl Value for UserFunction {
                     });
                 }
 
-                scope.eval(func.body.clone())
+                let frame = StackFrame { id: *id };
+                ctx.call_stack
+                    .with_frame(frame, |cs| scope.eval_with_stack(cs, &func.body))
             },
         );
+    }
+}
+
+#[derive(derive_more::Debug, Clone)]
+pub struct FunctionValue {
+    #[expect(unused)]
+    pub id: FunctionId,
+    #[debug(skip)]
+    pub func: Rc<dyn Function>,
+}
+
+impl FunctionValue {
+    pub fn new<V, R>(func: fn(CallContext<FnCtx>, V) -> R) -> Self
+    where
+        fn(CallContext<FnCtx>, V) -> R: Function + 'static,
+    {
+        Self {
+            id: FunctionId::new(),
+            func: Rc::new(func),
+        }
+    }
+}
+
+impl Value for FunctionValue {
+    fn type_name() -> Cow<'static, str>
+    where
+        Self: Sized,
+    {
+        "Function".into()
+    }
+
+    fn type_name_of(&self) -> Cow<'static, str> {
+        "Function".into()
+    }
+
+    fn to_string(&self, out: &mut String) {
+        out.push_str("<native function>");
+    }
+    fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(fmt, "<native function>")
+    }
+
+    fn snapshot(&self) -> Rc<dyn Value> {
+        Rc::new(self.clone())
+    }
+    fn eq(&self, _other: ValueRef) -> bool {
+        false
+    }
+
+    fn register(registry: &mut Registry<Self>)
+    where
+        Self: Sized,
+    {
+        registry.register_call::<fn(CallContext<FnCtx<'_>>, &_, VarArgs) -> _>(|ctx, f, args| {
+            f.func.call(args, ctx)
+        });
     }
 }

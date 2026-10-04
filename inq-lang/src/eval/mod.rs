@@ -1,10 +1,12 @@
 use std::{
     any::TypeId,
-    cell::{OnceCell, Ref, RefCell},
+    cell::{Cell, OnceCell, Ref, RefCell},
     collections::HashMap,
+    io::Write,
     rc::Rc,
 };
 
+pub mod call_stack;
 mod ext;
 pub(crate) mod lazy;
 pub mod registry;
@@ -19,10 +21,10 @@ pub use scope::*;
 use crate::{
     IStr, Span,
     eval::{
-        registry::{AnyRegistry, FunctionValue, Indexer, Registry},
+        registry::{AnyRegistry, Indexer, Registry, VarArgs},
         value::{
             Value, ValueRef,
-            function::UserFunction,
+            function::{FunctionValue, UserFunction},
             native::{Array, Float, Int, Null, Object},
             ty::TypeValue,
         },
@@ -71,21 +73,51 @@ impl TypeRegistry {
     }
 }
 
-#[derive(Default, Debug)]
+type PrintFn = fn(std::fmt::Arguments<'_>) -> std::io::Result<()>;
+
+#[derive(derive_more::Debug)]
 pub struct Engine {
     types: RefCell<TypeRegistry>,
     global: OnceCell<Rc<Scope>>,
+    on_stdout: Cell<PrintFn>,
+    on_stderr: Cell<PrintFn>,
 }
 
 impl Engine {
     pub fn new() -> Rc<Self> {
         let this = Self {
             types: Default::default(),
-            global: OnceCell::new(),
+            global: Default::default(),
+            on_stdout: Cell::new(|args| std::io::stdout().write_fmt(args)),
+            on_stderr: Cell::new(|args| std::io::stderr().write_fmt(args)),
         };
         let this = Rc::new(this);
         this.register_defaults();
+        this.add_default_functions();
         this
+    }
+
+    fn add_default_functions(self: &Rc<Self>) {
+        self.global().declare_function("print", |ctx, s: VarArgs| {
+            let print = |args: std::fmt::Arguments<'_>| {
+                (ctx.engine().on_stdout.get())(args).map_err(|e| ctx.wrap_error(e))
+            };
+            for (i, a) in s.inner.into_iter().enumerate() {
+                if i > 0 {
+                    print(format_args!(" "))?;
+                }
+                let mut out = String::new();
+                a.value().to_string(&mut out);
+                print(format_args!("{}", out))?;
+            }
+            print(format_args!("\n"))?;
+            Ok(ValueRef::null())
+        });
+
+        self.global().declare_function("debug", |ctx, s: ValueRef| {
+            (ctx.engine().on_stderr.get())(format_args!("{:#?}\n", s.debug()))
+                .map_err(|e| ctx.wrap_error(e))
+        });
     }
 
     fn register_defaults(self: &Rc<Self>) {
@@ -103,6 +135,13 @@ impl Engine {
 
     pub fn register_type<V: Value>(self: &Rc<Self>) {
         TypeRegistry::add::<V>(&self.types, self.clone());
+    }
+
+    pub fn on_stdout(self: &Rc<Self>, func: PrintFn) {
+        self.on_stdout.replace(func);
+    }
+    pub fn on_stderr(self: &Rc<Self>, func: PrintFn) {
+        self.on_stdout.replace(func);
     }
 
     pub fn global(self: &Rc<Self>) -> Rc<Scope> {
@@ -147,8 +186,10 @@ mod test {
         eval::{
             Engine, EvalError, Variable,
             lazy::identity_mapper,
-            registry::FunctionValue,
-            value::native::{Int, Null},
+            value::{
+                function::FunctionValue,
+                native::{Int, Null},
+            },
         },
         eval_expr,
     };

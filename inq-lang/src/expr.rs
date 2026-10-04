@@ -4,8 +4,8 @@ use crate::{
     IStr, Span,
     eval::value::ValueRef,
     lex::{self, GroupDelim, Keyword, LitKind, Punct, TokenKind, TokenStream, TokenTree},
-    parse::{Block, Ident, Parse, ParseError, StringExpr},
-    util::{DisplayList, DisplayVec},
+    parse::{Block, FunctionItem, Ident, Parse, ParseError, StringExpr},
+    util::{DisplayList, DisplayVec, OptionDisplay},
 };
 
 use super::lex::TokenTreeInner;
@@ -410,6 +410,8 @@ pub enum Ast {
         then: Box<Expr>,
         elze: Option<Box<Expr>>,
     },
+    #[display("fn {} with {} {{ {} }}", _0.name, OptionDisplay(&_0.with.as_ref().map(|x| x.0)), _0.body)]
+    FunctionDef(FunctionItem),
     #[display("{}", DisplayVec(items))]
     ArrayLiteral { items: Vec<Expr> },
     #[display("{}", DisplayVec(fields))]
@@ -452,15 +454,22 @@ impl Expr {
             }
         } else if la.peek(Keyword::Let) {
             let _let = tokens.expect(Keyword::Let)?;
-            let var = tokens.parse()?;
+            let var: Ident = tokens.parse()?;
             let value = if tokens.next_if(Punct::Eq).is_some() {
                 Some(Box::new(tokens.parse()?))
             } else {
                 None
             };
             Expr {
+                span: var.span,
                 ast: Ast::Declare { var, value },
-                span: _let.span,
+            }
+        } else if la.peek(Keyword::Fn) {
+            lhs_statement = true;
+            let func: FunctionItem = tokens.parse()?;
+            Expr {
+                span: func.name.span,
+                ast: Ast::FunctionDef(func),
             }
         } else if la.peek(Keyword::If) {
             lhs_statement = true;

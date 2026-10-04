@@ -6,7 +6,8 @@ use crate::{
     Span, StringExt,
     eval::{
         EvalError, EvalResult,
-        registry::{BinOp, PrefixOp, Registry, UnaryOp, VarArgs},
+        registry::{BinOp, FnCtx, PrefixOp, Registry, UnaryOp, VarArgs},
+        value::CallContext,
     },
     parse::Ident,
     string::IStr,
@@ -14,7 +15,7 @@ use crate::{
 
 use super::{Value, ValueRef};
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Null;
 impl From<()> for Null {
     fn from((): ()) -> Self {
@@ -116,7 +117,7 @@ impl Value for Int {
         registry.register_cmp(|l, r| l.partial_cmp(r));
         registry.register_cmp(|l, r| (*l as Float).partial_cmp(r));
 
-        registry.register_method::<fn(_, &_, _) -> _>(
+        registry.register_method::<fn(CallContext<FnCtx<'_>>, &_, _) -> _>(
             "to_string",
             |ctx, &this, radix: Option<i64>| {
                 let radix = radix.unwrap_or(10.into());
@@ -345,7 +346,7 @@ impl Value for IStr {
                 this.replace(&*needle, &replacement).intern()
             },
         );
-        registry.register_method::<fn(_, &_, _) -> _>(
+        registry.register_method::<fn(CallContext<FnCtx<'_>>, &_, _) -> _>(
             "substring",
             |ctx, this, (start, end): (i64, i64)| {
                 let nstart = normalise_index(start, this.len())?;
