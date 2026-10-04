@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     collections::HashMap,
     rc::{Rc, Weak},
 };
@@ -27,6 +27,7 @@ struct CheckScope {
     scope: Rc<Scope>,
     /// Variables _defined_ in this scope.  Value is effectively a key for Checker.varibles
     variables: Rc<RefCell<IndexSet<(Ident, usize)>>>,
+    in_func: Cell<bool>,
 }
 
 impl std::fmt::Debug for CheckScope {
@@ -86,6 +87,7 @@ impl CheckScope {
             child: RefCell::new(Vec::new()),
             variables: Default::default(),
             scope,
+            in_func: Cell::new(false),
         })
     }
 
@@ -100,6 +102,7 @@ impl CheckScope {
             child: RefCell::new(Vec::new()),
             scope: self.scope.make_child(),
             variables: Default::default(),
+            in_func: Cell::new(false),
         });
         self.child.borrow_mut().push(new.clone());
         new
@@ -297,6 +300,7 @@ impl CheckScope {
             }
             Ast::FunctionDef(func) => {
                 let child = self.make_child();
+                child.in_func.set(true);
                 match func.with {
                     Some((FunctionWith::Request, _)) => {
                         child.scope.set_special(Special::Request(ValueRef::null()))
@@ -311,6 +315,13 @@ impl CheckScope {
                 }
                 child.check(&func.body)?;
                 self.declare_variable(&func.name);
+            }
+            Ast::Return { span, value } => {
+                if self.in_func.get() {
+                    self.check(value)?;
+                } else {
+                    return Err(EvalError::InvalidReturn { span: *span });
+                }
             }
             Ast::ArrayLiteral { items } => {
                 for a in items {

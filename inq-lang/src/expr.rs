@@ -384,6 +384,8 @@ pub enum Ast {
         var: Ident,
         value: Option<Box<Expr>>,
     },
+    #[display("return {}", value)]
+    Return { span: Span, value: Box<Expr> },
     #[display("{}.{}", value, field)]
     FieldAccess { value: Box<Expr>, field: Ident },
     #[display("{}.{}({})", value, method, DisplayVec(args))]
@@ -470,6 +472,15 @@ impl Expr {
             Expr {
                 span: func.name.span,
                 ast: Ast::FunctionDef(func),
+            }
+        } else if la.peek(Keyword::Return) {
+            let tok = tokens.expect(Keyword::Return)?;
+            Expr {
+                span: tok.span,
+                ast: Ast::Return {
+                    span: tok.span,
+                    value: Box::new(tokens.parse()?),
+                },
             }
         } else if la.peek(Keyword::If) {
             lhs_statement = true;

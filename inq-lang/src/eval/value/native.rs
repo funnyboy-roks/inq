@@ -392,6 +392,12 @@ impl Value for IStr {
 #[derive(Debug, Clone)]
 pub struct Array(RefCell<Vec<ValueRef>>);
 
+impl From<Vec<ValueRef>> for Array {
+    fn from(value: Vec<ValueRef>) -> Self {
+        Self(RefCell::new(value))
+    }
+}
+
 impl<T: Value + PartialEq> PartialEq<[T]> for Array {
     fn eq(&self, other: &[T]) -> bool {
         let this = self.0.borrow();

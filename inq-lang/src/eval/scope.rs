@@ -9,7 +9,7 @@ use std::{
 use indexmap::IndexMap;
 
 use crate::{
-    IStr, Ident, Span, VariableItem,
+    IStr, Ident, Span, StringExt, VariableItem,
     eval::{
         Engine, EvalError, EvalResult, TypeRegistry,
         call_stack::CallStack,
@@ -353,38 +353,65 @@ impl Scope {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum ControlFlow {
+    /// Resolve to value
+    Value(ValueRef),
+    /// Return from function
+    Return(ValueRef),
+}
+
+/// `?` for `ControlFlow`
+macro_rules! try_cf {
+    ($e:expr) => {
+        match $e {
+            ControlFlow::Value(v) => v,
+            r @ ControlFlow::Return(_) => return Ok(r),
+        }
+    };
+}
+
 /// Evaluation
 impl Scope {
     // NOTE: This is for public API only
     pub fn eval(self: &Rc<Self>, expr: &Expr) -> EvalResult<ValueRef> {
-        self.eval_with_stack(&mut CallStack::new(), expr)
+        match self.eval_with_stack(&mut CallStack::new(), expr)? {
+            ControlFlow::Value(v) => Ok(v),
+            ControlFlow::Return(_) => unreachable!(),
+        }
     }
+
     pub(crate) fn eval_with_stack(
         self: &Rc<Self>,
         call_stack: &mut CallStack,
         expr: &Expr,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         if call_stack.depth() > CallStack::MAX_DEPTH {
             return Err(EvalError::RecursionDepth { span: expr.span });
         }
         match &expr.ast {
-            Ast::String(string_expr) => Ok(call_stack
-                .without_change(|cs| self.eval_string(cs, string_expr))?
-                .into()),
-            Ast::Lit(lit) => match *lit {
-                Lit::Int(n) => Ok(ValueRef::new(n as i64)),
-                Lit::Float(f) => Ok(ValueRef::new(f)),
-                Lit::Bool(b) => Ok(ValueRef::new(b)),
-                Lit::Null => Ok(ValueRef::null()),
-            },
+            Ast::String(string_expr) => {
+                call_stack.without_change(|cs| self.eval_string(cs, string_expr))
+            }
+            Ast::Lit(lit) => {
+                let v = match *lit {
+                    Lit::Int(n) => ValueRef::new(n as i64),
+                    Lit::Float(f) => ValueRef::new(f),
+                    Lit::Bool(b) => ValueRef::new(b),
+                    Lit::Null => ValueRef::null(),
+                };
+                Ok(ControlFlow::Value(v))
+            }
             Ast::Block(block) => self.eval_block(call_stack, block),
-            Ast::Variable(ident) => self.expect_variable(ident),
+            Ast::Variable(ident) => self.expect_variable(ident).map(ControlFlow::Value),
             Ast::Request => self
                 .request()
-                .ok_or(EvalError::RequestInBadPosition { span: expr.span }),
+                .ok_or(EvalError::RequestInBadPosition { span: expr.span })
+                .map(ControlFlow::Value),
             Ast::Response => self
                 .response()
-                .ok_or(EvalError::ResponseInBadPosition { span: expr.span }),
+                .ok_or(EvalError::ResponseInBadPosition { span: expr.span })
+                .map(ControlFlow::Value),
             Ast::PrefixOp {
                 op,
                 op_span,
@@ -402,7 +429,7 @@ impl Scope {
                     var.clone(),
                     value.as_deref().cloned(),
                 ));
-                Ok(ValueRef::null())
+                Ok(ControlFlow::Value(ValueRef::null()))
             }
             Ast::FieldAccess { value, field } => self.eval_field_access(call_stack, value, field),
             Ast::MethodCall {
@@ -418,32 +445,47 @@ impl Scope {
             Ast::FunctionCall { func, args, span } => {
                 self.eval_function_call(call_stack, func, args, *span)
             }
+            Ast::Return { span, value } => {
+                if call_stack.depth() == 0 {
+                    Err(EvalError::InvalidReturn { span: *span })
+                } else {
+                    Ok(ControlFlow::Return(try_cf!(call_stack.without_change(
+                        |cs| self.make_child().eval_with_stack(cs, value)
+                    )?)))
+                }
+            }
             Ast::If {
                 condition,
                 then,
                 elze,
             } => {
-                let condition = call_stack
-                    .without_change(|cs| self.make_child().eval_with_stack(cs, condition))?;
+                let condition = try_cf!(
+                    call_stack
+                        .without_change(|cs| self.make_child().eval_with_stack(cs, condition))?
+                );
                 if condition.value().truthy() {
                     call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, then))
                 } else {
                     if let Some(elze) = elze {
                         call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, elze))
                     } else {
-                        Ok(ValueRef::null())
+                        Ok(ControlFlow::Value(ValueRef::null()))
                     }
                 }
             }
             Ast::FunctionDef(func) => {
                 self.declare_function_item(func.clone());
-                Ok(ValueRef::null())
+                Ok(ControlFlow::Value(ValueRef::null()))
             }
-            Ast::ArrayLiteral { items } => items
-                .iter()
-                .map(|i| call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, i)))
-                .collect::<Result<Array, _>>()
-                .map(Into::into),
+            Ast::ArrayLiteral { items } => {
+                let mut out = Vec::new();
+                for i in items {
+                    out.push(try_cf!(
+                        call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, i))?
+                    ));
+                }
+                Ok(ControlFlow::Value(Array::from(out).into()))
+            }
             Ast::ObjectLiteral { fields } => self.eval_object_literal(call_stack, fields),
         }
     }
@@ -452,17 +494,15 @@ impl Scope {
         self: &Rc<Self>,
         call_stack: &mut CallStack,
         block: &Block,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let mut last = ValueRef::null();
         let scope = self.make_child();
         for e in &block.exprs {
-            last = call_stack.without_change(|cs| scope.eval_with_stack(cs, e))?;
+            last = try_cf!(call_stack.without_change(|cs| scope.eval_with_stack(cs, e))?);
         }
-        if block.ret {
-            Ok(last)
-        } else {
-            Ok(ValueRef::null())
-        }
+
+        let v = if block.ret { last } else { ValueRef::null() };
+        Ok(ControlFlow::Value(v))
     }
 
     fn eval_function_call(
@@ -471,15 +511,16 @@ impl Scope {
         func: &Expr,
         args: &[Expr],
         span: Span,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let mut arg_spans = Vec::with_capacity(args.len());
         let mut eval_args = Vec::with_capacity(args.len());
         for a in args {
             arg_spans.push(a.span);
-            eval_args
-                .push(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?);
+            eval_args.push(try_cf!(
+                call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?
+            ));
         }
-        let func = call_stack.without_change(|cs| self.eval_with_stack(cs, func))?;
+        let func = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, func))?);
         let reg = self.engine.get_type(&func, span)?;
         if let Some(call) = &reg.call {
             call.call(
@@ -494,6 +535,7 @@ impl Scope {
                     },
                 ),
             )
+            .map(ControlFlow::Value)
         } else {
             Err(EvalError::NotCallable {
                 ty: func.type_name_of().into(),
@@ -508,13 +550,14 @@ impl Scope {
         value: &Expr,
         index: &Expr,
         question: Option<&Span>,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let span = index.span;
         let ctx_ext = registry::GetIndexCtx {
             index_span: index.span,
         };
-        let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
-        let index = call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, index))?;
+        let value = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
+        let index =
+            try_cf!(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, index))?);
         let idx = self.engine.get_index(&value, &index, span)?;
         let v = idx.getter.get(
             index.clone(),
@@ -522,9 +565,9 @@ impl Scope {
         )?;
 
         if let Some(v) = v {
-            Ok(v)
+            Ok(ControlFlow::Value(v))
         } else if question.is_some() {
-            Ok(ValueRef::null())
+            Ok(ControlFlow::Value(ValueRef::null()))
         } else {
             Err(EvalError::MissingIndex {
                 value: value.type_name_of().into(),
@@ -539,9 +582,9 @@ impl Scope {
         call_stack: &mut CallStack,
         value: &Expr,
         field: &Ident,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let value_span = value.span;
-        let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+        let obj = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
         let span = field.span;
         let reg = self.engine.get_type(&obj, value_span)?;
         if let Some(field) = reg.get_field(&field.inner) {
@@ -552,6 +595,7 @@ impl Scope {
                 field.clone(),
             )
         }
+        .map(ControlFlow::Value)
     }
 
     fn eval_method_call(
@@ -560,15 +604,16 @@ impl Scope {
         value: &Expr,
         method: &Ident,
         args: &[Expr],
-    ) -> EvalResult<ValueRef> {
-        let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+    ) -> EvalResult<ControlFlow> {
+        let value = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
 
         let mut arg_spans = Vec::with_capacity(args.len());
         let mut eval_args = Vec::with_capacity(args.len());
         for a in args {
             arg_spans.push(a.span);
-            eval_args
-                .push(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?);
+            let arg =
+                try_cf!(call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, a))?);
+            eval_args.push(arg);
         }
 
         let span = method.span;
@@ -583,18 +628,18 @@ impl Scope {
             },
         );
         reg.call_method(ctx, method.clone(), VarArgs::new(eval_args))
+            .map(ControlFlow::Value)
     }
 
     fn eval_object_literal(
         self: &Rc<Self>,
         call_stack: &mut CallStack,
         fields: &[ObjectField],
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let mut inner = IndexMap::<IStr, ValueRef>::new();
         for f in fields {
             if let Some(cond) = &f.condition
-                && !call_stack
-                    .without_change(|cs| self.eval_with_stack(cs, cond))?
+                && !try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, cond))?)
                     .value()
                     .truthy()
             {
@@ -608,17 +653,24 @@ impl Scope {
                 }
                 ObjectFieldKV::IdentWithValue(ident, expr) => (
                     ident.inner.clone(),
-                    call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, expr))?,
+                    try_cf!(
+                        call_stack
+                            .without_change(|cs| self.make_child().eval_with_stack(cs, expr))?
+                    ),
                 ),
                 ObjectFieldKV::String(string_expr, expr) => (
-                    call_stack.without_change(|cs| self.eval_string(cs, string_expr))?,
-                    call_stack.without_change(|cs| self.make_child().eval_with_stack(cs, expr))?,
+                    try_cf!(call_stack.without_change(|cs| self.eval_string(cs, string_expr))?)
+                        .unwrap::<IStr>(),
+                    try_cf!(
+                        call_stack
+                            .without_change(|cs| self.make_child().eval_with_stack(cs, expr))?
+                    ),
                 ),
                 ObjectFieldKV::StringValue(key, value) => (key.clone(), value.clone()),
             };
             inner.insert(k, v);
         }
-        Ok(Object(inner.into()).into())
+        Ok(ControlFlow::Value(Object(inner.into()).into()))
     }
 
     fn eval_prefix_op(
@@ -627,12 +679,12 @@ impl Scope {
         op: expr::PrefixOp,
         op_span: Span,
         operand: &Expr,
-    ) -> EvalResult<ValueRef> {
-        let operand = call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?;
+    ) -> EvalResult<ControlFlow> {
+        let operand = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?);
         let op = match op {
             expr::PrefixOp::Neg => UnaryOp::Prefix(registry::PrefixOp::Neg),
             expr::PrefixOp::Not => {
-                return Ok(operand.value().truthy().not().into());
+                return Ok(ControlFlow::Value(operand.value().truthy().not().into()));
             }
         };
         let Some(unary_op) = self.engine.types().get(&operand, op_span)?.get_unary_op(op) else {
@@ -642,7 +694,9 @@ impl Scope {
                 operand: operand.type_name_of().into(),
             });
         };
-        unary_op.apply(CallContext::new(op_span, operand, self.clone()))
+        unary_op
+            .apply(CallContext::new(op_span, operand, self.clone()))
+            .map(ControlFlow::Value)
     }
 
     fn eval_assign(
@@ -651,16 +705,16 @@ impl Scope {
         op_span: Span,
         lhs: &Expr,
         rhs: &Expr,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let rhs_span = rhs.span;
-        let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
+        let rhs = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?);
         match &lhs.ast {
             Ast::Variable(var) => {
                 self.set_variable(var.clone(), rhs_span, rhs)?;
             }
             Ast::FieldAccess { value, field: name } => {
                 let value_span = value.span;
-                let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+                let obj = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
 
                 let reg = self.engine.get_type(&obj, value_span)?;
                 if let Some(field) = reg.get_field(&name.inner) {
@@ -692,8 +746,10 @@ impl Scope {
                     rhs_span,
                     index_span: index.span,
                 };
-                let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
-                let index = call_stack.without_change(|cs| self.eval_with_stack(cs, index))?;
+                let value =
+                    try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
+                let index =
+                    try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, index))?);
                 let indexer = self.engine.get_index(&value, &index, span)?;
                 let setter = indexer
                     .setter
@@ -716,7 +772,7 @@ impl Scope {
                 });
             }
         }
-        Ok(ValueRef::null())
+        Ok(ControlFlow::Value(ValueRef::null()))
     }
 
     fn eval_compound_assign(
@@ -726,18 +782,19 @@ impl Scope {
         op_span: Span,
         lhs: &Expr,
         rhs: &Expr,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let lhs_span = lhs.span;
         let rhs_span = rhs.span;
         match &lhs.ast {
             Ast::Variable(var) => {
                 let lhs = self.expect_variable(var)?;
-                let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                let rhs =
+                    try_cf!(self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?);
                 self.set_variable(var.clone(), rhs_span, rhs)?;
             }
             Ast::FieldAccess { value, field: name } => {
                 let value_span = value.span;
-                let obj = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
+                let obj = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
 
                 let reg = self.engine.get_type(&obj, value_span)?;
                 if let Some(field) = reg.get_field(&name.inner) {
@@ -747,8 +804,9 @@ impl Scope {
                             obj.clone(),
                             self.clone(),
                         ))?;
-                        let rhs =
-                            self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                        let rhs = try_cf!(
+                            self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?
+                        );
                         setter.set(rhs, CallContext::new(name.span, obj, self.clone()))?;
                     } else {
                         return Err(EvalError::ReadonlyField {
@@ -760,7 +818,9 @@ impl Scope {
                         CallContext::new(name.span, obj.clone(), self.clone()),
                         name.clone(),
                     )?;
-                    let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                    let rhs = try_cf!(
+                        self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?
+                    );
                     reg.field_set_fallback.set(
                         CallContext::new(name.span, obj, self.clone()),
                         name.clone(),
@@ -781,8 +841,10 @@ impl Scope {
                     rhs_span,
                     index_span,
                 };
-                let value = call_stack.without_change(|cs| self.eval_with_stack(cs, value))?;
-                let index = call_stack.without_change(|cs| self.eval_with_stack(cs, index))?;
+                let value =
+                    try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, value))?);
+                let index =
+                    try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, index))?);
                 let indexer = self.engine.get_index(&value, &index, index_span)?;
 
                 let Some(lhs) = indexer.getter.get(
@@ -801,7 +863,8 @@ impl Scope {
                         span: index_span,
                     });
                 };
-                let rhs = self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?;
+                let rhs =
+                    try_cf!(self.eval_infix_op(call_stack, inner, op_span, lhs, lhs_span, rhs)?);
 
                 let setter = indexer
                     .setter
@@ -824,7 +887,7 @@ impl Scope {
                 });
             }
         };
-        Ok(ValueRef::null())
+        Ok(ControlFlow::Value(ValueRef::null()))
     }
 
     fn eval_infix(
@@ -833,7 +896,7 @@ impl Scope {
         op: InfixOp,
         op_span: Span,
         (lhs, rhs): &(Expr, Expr),
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         if op == InfixOp::Assign {
             return self.eval_assign(call_stack, op_span, lhs, rhs);
         } else if let Some(inner) = op.strip_assign() {
@@ -841,7 +904,7 @@ impl Scope {
         }
 
         let lhs_span = lhs.span;
-        let lhs = call_stack.without_change(|cs| self.eval_with_stack(cs, lhs))?;
+        let lhs = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, lhs))?);
 
         self.eval_infix_op(call_stack, op, op_span, lhs, lhs_span, rhs)
     }
@@ -854,7 +917,7 @@ impl Scope {
         lhs: ValueRef,
         lhs_span: Span,
         rhs: &Expr,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let op = match op {
             InfixOp::OrAssign
             | InfixOp::AndAssign
@@ -871,7 +934,7 @@ impl Scope {
             | InfixOp::Assign => unreachable!("handled above"),
             InfixOp::Or => {
                 if lhs.value().truthy() {
-                    return Ok(lhs);
+                    return Ok(ControlFlow::Value(lhs));
                 } else {
                     return call_stack.without_change(|cs| self.eval_with_stack(cs, rhs));
                 }
@@ -880,12 +943,12 @@ impl Scope {
                 if lhs.value().truthy() {
                     return call_stack.without_change(|cs| self.eval_with_stack(cs, rhs));
                 } else {
-                    return Ok(lhs);
+                    return Ok(ControlFlow::Value(lhs));
                 }
             }
             InfixOp::Cmp(cmp) => {
                 let rhs_span = rhs.span;
-                let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
+                let rhs = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?);
 
                 let ord = Self::cmp(
                     &self.engine.types(),
@@ -903,7 +966,7 @@ impl Scope {
                     CmpOp::NotEq => !matches!(ord, Ordering::Equal),
                 };
 
-                return Ok(result.into());
+                return Ok(ControlFlow::Value(result.into()));
             }
             InfixOp::Add => BinOp::Add,
             InfixOp::Sub => BinOp::Sub,
@@ -917,7 +980,7 @@ impl Scope {
             InfixOp::Shl => BinOp::Shl,
         };
 
-        let rhs = call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?;
+        let rhs = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, rhs))?);
 
         let registry = self.engine.types().get(&lhs, lhs_span)?;
 
@@ -930,11 +993,13 @@ impl Scope {
             });
         };
 
-        binop.apply(
-            lhs.clone(),
-            rhs,
-            CallContext::new(op_span, lhs, self.clone()),
-        )
+        binop
+            .apply(
+                lhs.clone(),
+                rhs,
+                CallContext::new(op_span, lhs, self.clone()),
+            )
+            .map(ControlFlow::Value)
     }
 
     fn cmp(
@@ -978,15 +1043,15 @@ impl Scope {
         call_stack: &mut CallStack,
         op: expr::PostfixOp,
         operand: &Expr,
-    ) -> EvalResult<ValueRef> {
+    ) -> EvalResult<ControlFlow> {
         let span = operand.span;
-        let operand = call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?;
+        let operand = try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, operand))?);
         match op {
             expr::PostfixOp::AssertNotNull => {
                 if operand.value().is::<Null>() {
                     Err(EvalError::NotNullAssertion { span })
                 } else {
-                    Ok(operand)
+                    Ok(ControlFlow::Value(operand))
                 }
             }
         }
@@ -996,18 +1061,17 @@ impl Scope {
         self: &Rc<Self>,
         call_stack: &mut CallStack,
         string: &StringExpr,
-    ) -> EvalResult<IStr> {
+    ) -> EvalResult<ControlFlow> {
         let mut out = String::new();
         let mut last = 0;
         for e in &string.interpolations {
             out.push_str(&string.value[last..e.index]);
-            call_stack
-                .without_change(|cs| self.eval_with_stack(cs, &e.expr))?
+            try_cf!(call_stack.without_change(|cs| self.eval_with_stack(cs, &e.expr))?)
                 .value()
                 .to_string(&mut out);
             last = e.index;
         }
         out.push_str(&string.value[last..]);
-        Ok(out.into())
+        Ok(ControlFlow::Value(out.intern().into()))
     }
 }

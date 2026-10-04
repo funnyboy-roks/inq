@@ -182,6 +182,11 @@ pub enum EvalError {
         #[label = "This function call"]
         span: Span,
     },
+    #[error("Return may only be used inside of a function definition")]
+    InvalidReturn {
+        #[label = "Used here"]
+        span: Span,
+    },
     #[error("{}", _0)]
     #[diagnostic(transparent)]
     Transparent(miette::Error),

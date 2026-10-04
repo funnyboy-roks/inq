@@ -229,6 +229,7 @@ pub(crate) enum Keyword {
     Null,
     Fn,
     With,
+    Return,
     Method(Method),
 }
 
@@ -249,6 +250,7 @@ impl Keyword {
             "null"     => Keyword::Null,
             "fn"       => Keyword::Fn,
             "with"     => Keyword::With,
+            "return"   => Keyword::Return,
             "GET"      => Keyword::Method(Method::Get),
             "HEAD"     => Keyword::Method(Method::Head),
             "POST"     => Keyword::Method(Method::Post),
@@ -289,6 +291,7 @@ impl TokenKind for Keyword {
             Keyword::Null => "`null`",
             Keyword::Fn => "`fn`",
             Keyword::With => "`with`",
+            Keyword::Return => "`return`",
             Keyword::Method(m) => m.name(),
         }
     }

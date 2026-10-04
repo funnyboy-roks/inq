@@ -49,6 +49,24 @@ fn implicit_return_value() {
 }
 
 #[test]
+fn explicit_return_value() {
+    let e = Engine::new();
+
+    e.global()
+        .declare_function("unreachable", |_ctx, ()| unreachable!() as ());
+
+    let v = eval_expr! { e,
+        fn foo() {
+            return 5;
+            unreachable();
+        }
+        foo()
+    };
+
+    assert_eq!(v, 5);
+}
+
+#[test]
 fn arrow() {
     let e = Engine::new();
 
@@ -87,6 +105,24 @@ fn arg_implicit_return() {
     let v = eval_expr! { e,
         fn foo(n) {
             n + 2
+        }
+        foo(5)
+    };
+
+    assert_eq!(v, 7);
+}
+
+#[test]
+fn arg_explicit_return() {
+    let e = Engine::new();
+
+    e.global()
+        .declare_function("unreachable", |_ctx, ()| unreachable!() as ());
+
+    let v = eval_expr! { e,
+        fn foo(n) {
+            return n + 2;
+            unreachable();
         }
         foo(5)
     };

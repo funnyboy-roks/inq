@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     eval::{
-        Scope, Variable,
+        ControlFlow, Scope, Variable,
         call_stack::StackFrame,
         lazy::LazyValueRef,
         registry::{FnCtx, Function, Registry, VarArgs},
@@ -103,8 +103,13 @@ impl Value for UserFunction {
                 }
 
                 let frame = StackFrame { id: *id };
-                ctx.call_stack
-                    .with_frame(frame, |cs| scope.eval_with_stack(cs, &func.body))
+                let v = match ctx
+                    .call_stack
+                    .with_frame(frame, |cs| scope.eval_with_stack(cs, &func.body))?
+                {
+                    ControlFlow::Value(v) | ControlFlow::Return(v) => v,
+                };
+                Ok(v)
             },
         );
     }
