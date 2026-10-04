@@ -723,6 +723,7 @@ impl Expr {
             {
                 // fallthrough
             } else if lhs_statement {
+                dbg!("lhs_statement");
                 break;
             } else {
                 return la.error_expected([&*Punct::Semicolon.to_string(), "Operator"]);

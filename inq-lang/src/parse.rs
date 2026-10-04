@@ -335,13 +335,7 @@ impl Parse for Block {
         let mut tokens = tokens.expect_group(GroupDelim::Brace)?;
         let mut exprs = Vec::new();
         let mut ret = true;
-        loop {
-            while tokens.next_if(Punct::Semicolon).is_some() {}
-
-            if tokens.is_empty() {
-                break;
-            }
-
+        while !tokens.is_empty() {
             exprs.push(tokens.parse()?);
 
             let mut la = tokens.lookahead();
@@ -354,7 +348,7 @@ impl Parse for Block {
             } else if la.eof("End of block") {
                 break;
             } else {
-                return la.error();
+                continue;
             }
         }
 

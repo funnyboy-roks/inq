@@ -143,6 +143,38 @@ fn arg_arrow_return() {
 }
 
 #[test]
+fn correct_return() {
+    let e = Engine::new();
+
+    let v = eval_expr! { e,
+        fn foo() {
+            fn bar() {
+                return 5;
+            }
+            return bar() + 2;
+        }
+        foo()
+    };
+
+    assert_eq!(v, 7);
+}
+
+#[test]
+fn correct_return_arrow() {
+    let e = Engine::new();
+
+    let v = eval_expr! { e,
+        fn foo() {
+            fn bar() => return 6;
+            return bar() + 2;
+        }
+        foo()
+    };
+
+    assert_eq!(v, 8);
+}
+
+#[test]
 fn recursion() {
     let e = Engine::new();
 
