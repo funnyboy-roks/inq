@@ -1,0 +1,26 @@
+[package]
+name = "inq-lang"
+description = "Language implementation for the inq crate"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+testing = []
+
+[dependencies]
+miette.workspace = true
+thiserror.workspace = true
+derive_more.workspace = true
+indexmap.workspace = true
+serde.workspace = true
+
+phf = { version = "0.14.0", features = ["macros"] }
+
+[dev-dependencies]
+inq-lang = { path = "./", features = ["testing"] }
