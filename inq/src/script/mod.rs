@@ -3,7 +3,7 @@ use std::{fmt::Display, rc::Rc};
 use bytes::Bytes;
 use inq_lang::{
     IStr, StringExt,
-    eval::{Engine, EvalResult, Special, registry::VarArgs, value::ValueRef},
+    eval::{Engine, EvalResult, Special, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use rustyline::DefaultEditor;
@@ -138,9 +138,6 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<DateTimeValue>();
     engine.register_type::<faker::FakerValue>();
 
-    // plugins
-    // RandomPackage::new().register_into_engine(&mut engine);
-
     let global = engine.global();
 
     global.declare_function("env", |_ctx, var: IStr| {
@@ -153,22 +150,6 @@ pub fn base_engine() -> Rc<Engine> {
     global.declare_function("prompt", |ctx, text: IStr| {
         let e = prompt(&text).map_err(|e| ctx.error(format!("Error prompting: {}", e)))?;
         Ok(e.intern())
-    });
-
-    global.declare_function("print", |_ctx, s: VarArgs| {
-        for (i, a) in s.inner.into_iter().enumerate() {
-            if i > 0 {
-                print!(" ")
-            }
-            let mut out = String::new();
-            a.value().to_string(&mut out);
-            print!("{}", out);
-        }
-        println!();
-    });
-    global.declare_function("debug", |_ctx, s: ValueRef| {
-        eprintln!("{:#?}", s.debug());
-        s // allow it to be used like dbg!
     });
 
     global.declare_function("json", Json::from_value);

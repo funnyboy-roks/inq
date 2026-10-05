@@ -2,6 +2,16 @@
 resolver = "2"
 members = ["inq", "inq-lang"]
 
+[workspace.package]
+version = "0.2.0-rc.1"
+edition = "2024"
+authors = ["funnyboy_roks <fbr@fbr.dev>"]
+keywords = ["api", "api-client", "rest", "web-dev"]
+categories = ["web-programming::http-client", "development-tools", "development-tools::debugging", "development-tools::testing"]
+repository = "https://github.com/funnyboy-roks/inq"
+license = "Apache-2.0"
+rust-version = "1.95"
+
 [workspace.dependencies]
 miette = { version = "7.6.0", features = ["fancy", "syntect-highlighter"] }
 thiserror = "2.0.20"

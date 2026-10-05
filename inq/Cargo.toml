@@ -1,14 +1,14 @@
 [package]
 name = "inq"
-version = "0.1.1"
 description = "A tool for executing API queries defined in a plaintext file that can be checked in to version control or managed like any other file."
-authors = ["funnyboy_roks <fbr@fbr.dev>"]
-keywords = ["api", "api-client", "rest", "web-dev"]
-categories = ["web-programming::http-client", "development-tools", "development-tools::debugging", "development-tools::testing"]
-repository = "https://github.com/funnyboy-roks/inq"
-license = "Apache-2.0"
-edition = "2024"
-rust-version = "1.95"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+keywords.workspace = true
+categories.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
 
 [features]
 testing = ["inq-lang/testing"]
