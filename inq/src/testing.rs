@@ -7,7 +7,7 @@ use crate::{
 
 pub fn make_cli(dir: &Path, route_name: &str) -> Cli {
     Cli {
-        config: dir.join("main.inq"),
+        config: dir.join("api.inq"),
         subcmd: SubCmd::Route(RouteCommand {
             raw: false,
             client: Default::default(),
@@ -26,6 +26,6 @@ pub fn run_cli_test(tempdir: &Path, route: &str, config: impl Into<String>) -> m
 
 pub fn exec(tempdir: &Path, mut cli: Cli, config: impl Into<String>) -> miette::Result<()> {
     let config = config.into();
-    cli.config = tempdir.join("main.inq");
+    cli.config = tempdir.join("api.inq");
     run(cli, &config).map_err(|e| e.with_source_code(inq_lang::source("inline config", config)))
 }

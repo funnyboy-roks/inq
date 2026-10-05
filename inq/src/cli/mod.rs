@@ -119,7 +119,7 @@ pub enum SubCmd {
 
 #[derive(Debug, Parser)]
 pub struct Cli {
-    #[clap(short, long, default_value = "main.inq")]
+    #[clap(short, long, default_value = "api.inq")]
     pub config: PathBuf,
     #[clap(subcommand)]
     pub subcmd: SubCmd,
