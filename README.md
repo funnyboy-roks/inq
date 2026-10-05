@@ -8,6 +8,15 @@ The basic workflow goes like this:
 1. Create the script
 1. Run any route using `inq route <route>`
 
+> [!NOTE]
+> 
+> Documentation in this README is very incomplete and the Wiki is WIP.
+> 
+> There are more features than are documented here.  Please see the
+> [`api.inq`](https://github.com/funnyboy-roks/inq/blob/main/main.inq)
+> in the repository for some more examples and `inq --help` for more
+> CLI usage.
+
 ## Install
 
 There are a few ways to install:

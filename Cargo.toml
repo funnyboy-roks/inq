@@ -3,6 +3,7 @@ resolver = "2"
 members = ["inq", "inq-lang"]
 
 [workspace.package]
+# NOTE: be sure to update the inq-lang version in inq/Cargo.toml
 version = "0.2.0-rc.1"
 edition = "2024"
 authors = ["funnyboy_roks <fbr@fbr.dev>"]

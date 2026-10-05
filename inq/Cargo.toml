@@ -40,7 +40,7 @@ rustyline = "18.0.1"
 fake = "5.1.0"
 lipsum = "0.9.1"
 
-inq-lang = { path = "../inq-lang/" }
+inq-lang = { version = "0.2.0-rc.1", path = "../inq-lang/" }
 
 [dev-dependencies]
 inq = { path = ".", features = ["testing"] }

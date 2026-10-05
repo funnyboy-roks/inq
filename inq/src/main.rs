@@ -9,7 +9,7 @@ use syntect::{
 
 fn load_syntax() -> SyntaxSet {
     let syntax = SyntaxDefinition::load_from_str(
-        include_str!("../../assets/inq.sublime-syntax"),
+        include_str!("../assets/inq.sublime-syntax"),
         true,
         Some("inq"),
     )
