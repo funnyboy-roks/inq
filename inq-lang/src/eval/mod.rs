@@ -116,7 +116,8 @@ impl Engine {
 
         self.global().declare_function("debug", |ctx, s: ValueRef| {
             (ctx.engine().on_stderr.get())(format_args!("{:#?}\n", s.debug()))
-                .map_err(|e| ctx.wrap_error(e))
+                .map_err(|e| ctx.wrap_error(e))?;
+            Ok(s)
         });
     }
 

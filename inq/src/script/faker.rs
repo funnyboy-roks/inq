@@ -138,6 +138,7 @@ mod test {
     fn everything_works() {
         let e = base_engine();
         eval_expr! { e,
+            assert(String.is_instance("hello"));
             assert(String.is_instance(debug(Faker.lorem(25))));
             assert(Array.is_instance(debug(Faker.paragraphs(25))));
 
