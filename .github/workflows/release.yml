@@ -1,11 +1,11 @@
 # Sort of taken from https://github.com/BurntSushi/ripgrep/blob/master/.github/workflows/release.yml
 name: release
 
-# Only do the release on x.y.z tags.
+# Only do the release on x.y.z(-.*)? tags.
 on:
   push:
     tags:
-    - "[0-9]+.[0-9]+.[0-9]+"
+    - "[0-9]+.[0-9]+.[0-9]+(-.*)?"
 
 # We need this to be able to create releases.
 permissions:
