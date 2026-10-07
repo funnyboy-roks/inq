@@ -48,18 +48,28 @@ fn list_routes(config: Config) -> miette::Result<()> {
         })
         .collect::<Vec<_>>();
 
-    let args_len = args.iter().map(|a| a.len()).max().unwrap_or_default() + 2;
+    let has_args = config.routes.iter().any(|route| !route.args.is_empty());
+    let args_len = if has_args {
+        args.iter()
+            .map(|args| args.len() + 2)
+            .max()
+            .unwrap_or_default()
+            .max("Args".len() + 2)
+    } else {
+        0
+    };
 
     {
         use owo_colors::OwoColorize as _;
         println!(
-            "{:<name_len$}{}  {:<method_len$}  {}",
+            "{:<name_len$}{}{}  {:<method_len$}  {}",
             "Name".blue().bold(),
             if args_len != 0 {
                 format!("({})", "Args".magenta())
             } else {
                 String::new()
             },
+            " ".repeat(args_len.saturating_sub("Args".len() + 2)),
             "Method".yellow().bold(),
             "Endpoint".green().bold(),
         );
@@ -68,7 +78,11 @@ fn list_routes(config: Config) -> miette::Result<()> {
             if route.args.is_empty() {
                 print!("{:>args_len$}", "");
             } else {
-                print!("({})", args.magenta());
+                print!(
+                    "({}){}",
+                    args.magenta(),
+                    " ".repeat(args_len - args.len() - 2)
+                );
             }
             print!(
                 "  {:<method_len$}  {}",
