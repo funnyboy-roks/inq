@@ -88,6 +88,10 @@ inq var[iable] list
 
 Routes are individual routes that may be called from the command-line.
 
+Run `inq route` without a route name to list routes. Arguments with default
+values are marked with `?`, for example `foo(required, optional?)`, and may
+be omitted when running the route.
+
 A route can be specified like so:
 
 ```inq

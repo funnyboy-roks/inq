@@ -42,7 +42,13 @@ fn list_routes(config: Config) -> miette::Result<()> {
         .map(|r| {
             r.args
                 .iter()
-                .map(|a| a.name.as_istr().to_string())
+                .map(|a| {
+                    let mut name = a.name.as_istr().to_string();
+                    if a.default_value.is_some() {
+                        name.push('?');
+                    }
+                    name
+                })
                 .collect::<Vec<_>>()
                 .join(", ")
         })
