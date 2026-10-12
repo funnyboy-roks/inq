@@ -73,8 +73,13 @@ impl Checker {
         self.root.check_item(item)
     }
 
-    pub fn print_warnings(&self) {
-        self.root.print_warnings();
+    pub(crate) fn check_expr(&self, expr: &Expr) -> EvalResult<()> {
+        self.root.check(expr)
+    }
+
+    /// Print warnings to the user and return how many warnings there were
+    pub fn print_warnings(&self) -> u32 {
+        self.root.print_warnings()
     }
 }
 
@@ -242,7 +247,6 @@ impl CheckScope {
             Ast::PrefixOp { operand, .. } => self.check(operand)?,
             Ast::InfixOp { operands, op, .. } => {
                 let (lhs, rhs) = &**operands;
-                self.check(rhs)?;
                 if *op == InfixOp::Assign {
                     match &lhs.ast {
                         Ast::Variable(var) => {
@@ -262,13 +266,14 @@ impl CheckScope {
                 } else {
                     self.check(lhs)?;
                 }
+                self.check(rhs)?;
             }
             Ast::PostfixOp { operand, .. } => self.check(operand)?,
             Ast::Declare { var, value } => {
-                self.declare_variable(var);
                 if let Some(value) = value {
                     self.check(value)?;
                 }
+                self.declare_variable(var);
             }
             Ast::FieldAccess { value, .. } => self.check(value)?,
             Ast::MethodCall { value, args, .. } => {
@@ -368,7 +373,9 @@ impl CheckScope {
         }
     }
 
-    fn print_warnings(&self) {
+    /// Returns how many errors were printed
+    fn print_warnings(&self) -> u32 {
+        let mut warnings = 0;
         for id @ &(ref name, n) in &*self.variables.borrow() {
             if let Some(varchk) = self.checker().variables.borrow().get(id)
                 && !varchk.used
@@ -384,6 +391,7 @@ impl CheckScope {
                         "Unused Variable: '{}'", name,
                     };
                     eprintln!("{:?}", err.with_source_code(self.checker().source.clone()));
+                    warnings += 1;
                 } else {
                     let mut labels = vec![name.span.with_label_primary("Defined here")];
                     labels.extend(
@@ -398,12 +406,14 @@ impl CheckScope {
                         "Unused Variable: '{}'", name,
                     };
                     eprintln!("{:?}", err.with_source_code(self.checker().source.clone()));
+                    warnings += 1;
                 }
             }
         }
         for child in &*self.child.borrow() {
-            child.print_warnings();
+            warnings += child.print_warnings();
         }
+        warnings
     }
 
     fn var_shadowed_by_unused(&self, ident: &Ident, n: usize) -> Vec<(Ident, usize, VarCheck)> {
@@ -414,5 +424,71 @@ impl CheckScope {
             .filter(|(k, v)| k.0 == *ident && k.1 > n && !v.used)
             .map(|((name, n), v)| (name.clone(), *n, *v))
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::{check_expr, eval::Engine};
+
+    #[test]
+    fn unused() {
+        let e = Engine::new();
+        let r = check_expr! { try e,
+            let x = 50; // unused
+        };
+
+        assert_eq!(r.unwrap().print_warnings(), 1);
+    }
+
+    #[test]
+    fn unused_shadow() {
+        let e = Engine::new();
+        let r = check_expr! { try e,
+            let x = 50; // unused
+            let y = 50;
+            print(y);
+        };
+
+        assert_eq!(r.unwrap().print_warnings(), 1);
+    }
+
+    #[test]
+    fn used_scope() {
+        let e = Engine::new();
+        let r = check_expr! { try e,
+            let x = 50;
+            if true {
+                print(x);
+            }
+        };
+
+        assert_eq!(r.unwrap().print_warnings(), 0);
+    }
+
+    #[test]
+    fn unused_scope_shadow() {
+        let e = Engine::new();
+        let r = check_expr! { try e,
+            let x = 50; // unused
+            if true {
+                let x = 24;
+                print(x);
+            }
+        };
+
+        assert_eq!(r.unwrap().print_warnings(), 1);
+    }
+
+    #[test]
+    fn shadow() {
+        let e = Engine::new();
+        let r = check_expr! { try e,
+            let x = 50;
+            let x = x;
+            print(x);
+        };
+
+        assert_eq!(r.unwrap().print_warnings(), 0);
     }
 }

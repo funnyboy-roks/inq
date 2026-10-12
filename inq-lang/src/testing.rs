@@ -1,6 +1,9 @@
 use std::rc::Rc;
 
-use crate::eval::{Engine, EvalResult, value::ValueRef};
+use crate::{
+    check::Checker,
+    eval::{Engine, EvalResult, value::ValueRef},
+};
 
 pub fn eval_str(engine: Rc<Engine>, content: &str) -> EvalResult<ValueRef> {
     let mut parser = crate::Parser::new(content)
@@ -32,6 +35,45 @@ macro_rules! eval_expr {
     ($engine: expr, $($tt:tt)*) => {{
         let content = stringify!($($tt)*);
         $crate::testing::eval_str(std::rc::Rc::clone(&$engine), content)
+            .map_err(|e| {
+                e.into_report("literal", content)
+            })
+            .unwrap()
+    }};
+}
+
+pub fn check_str(engine: Rc<Engine>, content: &str) -> EvalResult<Rc<Checker>> {
+    let mut parser = crate::Parser::new(content)
+        .map_err(|e| {
+            miette::Report::from(e).with_source_code(
+                crate::source("literal", content.to_string()).with_language("inq"),
+            )
+        })
+        .unwrap();
+
+    let scope = engine.global();
+    let checker = Checker::new(scope, crate::source("literal", content));
+
+    while let Some(e) = parser
+        .take_expr()
+        .map_err(|e| miette::Report::from(e).with_source_code(crate::source("literal", content)))
+        .unwrap()
+    {
+        checker.check_expr(&e)?;
+    }
+
+    Ok(checker)
+}
+
+#[macro_export]
+macro_rules! check_expr {
+    (try $engine: expr, $($tt:tt)*) => {{
+        let content = stringify!($($tt)*);
+        $crate::testing::check_str(std::rc::Rc::clone(&$engine), content)
+    }};
+    ($engine: expr, $($tt:tt)*) => {{
+        let content = stringify!($($tt)*);
+        $crate::testing::check_str(std::rc::Rc::clone(&$engine), content)
             .map_err(|e| {
                 e.into_report("literal", content)
             })
