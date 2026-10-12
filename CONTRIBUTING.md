@@ -79,5 +79,5 @@ This policy covers code, documentation, pull requests, issues, comments,
 and any other contributions.
 
 For more information on why we have this policy, Servo does a good job
-of pointing out the various concerns:
-<https://book.servo.org/contributing/getting-started#ai-contributions>
+of explaining the various concerns:
+<https://book.servo.org/policy/ai-usage.html>
