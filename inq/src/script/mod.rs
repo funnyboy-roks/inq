@@ -1,12 +1,9 @@
-use std::{fmt::Display, process::Command, rc::Rc};
+use std::{fmt::Display, rc::Rc};
 
 use bytes::Bytes;
 use inq_lang::{
     IStr, StringExt,
-    eval::{
-        Engine, EvalResult, Special,
-        value::{ValueRef, native::Array},
-    },
+    eval::{Engine, EvalResult, Special, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
 use rustyline::DefaultEditor;
