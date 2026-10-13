@@ -1,9 +1,12 @@
-use std::{fmt::Display, rc::Rc};
+use std::{fmt::Display, process::Command, rc::Rc};
 
 use bytes::Bytes;
 use inq_lang::{
     IStr, StringExt,
-    eval::{Engine, EvalResult, Special, value::ValueRef},
+    eval::{
+        Engine, EvalResult, Special,
+        value::{ValueRef, native::Array},
+    },
 };
 use miette::{IntoDiagnostic, bail};
 use rustyline::DefaultEditor;
@@ -13,7 +16,7 @@ use crate::{
     script::{
         bytes_value::BytesValue, client::ClientConfig, cookie::CookieValue,
         datetime::DateTimeValue, duration::DurationValue, header::HeaderMapValue, json::Json,
-        request::RequestValue, response::ResponseValue, url::UrlValue,
+        process::ChildValue, request::RequestValue, response::ResponseValue, url::UrlValue,
     },
 };
 
@@ -25,6 +28,7 @@ pub(crate) mod duration;
 pub(crate) mod faker;
 pub(crate) mod header;
 pub(crate) mod json;
+pub(crate) mod process;
 pub(crate) mod request;
 pub(crate) mod response;
 pub(crate) mod url;
@@ -138,6 +142,8 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<DateTimeValue>();
     engine.register_type::<faker::FakerValue>();
 
+    engine.register_type::<ChildValue>();
+
     let global = engine.global();
 
     global.declare_function("env", |_ctx, var: IStr| {
@@ -194,6 +200,8 @@ pub fn base_engine() -> Rc<Engine> {
             })
             .map(BytesValue::from)
     });
+
+    global.declare_function("system", process::system);
 
     engine
 }
