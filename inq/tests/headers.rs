@@ -14,9 +14,9 @@ fn req_unset() {
     let mock = server
         .mock("GET", "/test")
         .match_request(|req| {
-            req.headers().len() == 3
-                && req.has_header("user-agent")
+            req.has_header("user-agent")
                 && req.has_header("accept")
+                && req.has_header("accept-encoding")
                 && req.has_header("host")
         })
         .match_header("user-agent", Matcher::Regex("inq/.*".into()))

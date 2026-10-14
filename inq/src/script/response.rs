@@ -1,4 +1,4 @@
-use std::{cell::RefCell, net::SocketAddr, rc::Rc};
+use std::{cell::RefCell, rc::Rc, str::FromStr};
 
 use inq_lang::{
     IStr, StringExt,
@@ -8,13 +8,15 @@ use inq_lang::{
     },
 };
 use miette::{Context, IntoDiagnostic};
-use reqwest::{StatusCode, Version, blocking::Response, header};
+use ureq::{
+    Body, ResponseExt,
+    http::{Response, StatusCode, Version, header},
+};
+use url::Url;
 
 use crate::{
     debug_fmt,
-    script::{
-        Encoding, ScriptBody, bytes_value::BytesValue, header::HeaderMapValue, url::UrlValue,
-    },
+    script::{ScriptBody, bytes_value::BytesValue, header::HeaderMapValue, url::UrlValue},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,7 +24,6 @@ pub struct ResponseValue {
     pub status: Int,
     pub version: Version,
     pub url: UrlValue,
-    pub remote_addr: Option<SocketAddr>,
     pub headers: HeaderMapValue,
     pub content_length: Option<u64>,
     pub body: ScriptBody,
@@ -34,29 +35,16 @@ impl ResponseValue {
     }
 }
 
-impl TryFrom<Response> for ResponseValue {
+impl TryFrom<Response<Body>> for ResponseValue {
     type Error = miette::Error;
-    fn try_from(value: Response) -> miette::Result<Self> {
+    fn try_from(value: Response<Body>) -> miette::Result<Self> {
         Ok(Self {
             status: value.status().as_u16().into(),
             version: value.version(),
-            url: UrlValue(value.url().clone()),
-            remote_addr: value.remote_addr(),
+            url: UrlValue(Url::from_str(&value.get_uri().to_string()).unwrap()),
             headers: HeaderMapValue(RefCell::new(value.headers().clone())),
-            content_length: value.content_length(),
+            content_length: value.body().content_length(),
             body: {
-                let encoding = value.headers().get(header::CONTENT_ENCODING);
-
-                let encoding = if let Some(encoding) = encoding {
-                    let encoding = encoding
-                        .to_str()
-                        .into_diagnostic()
-                        .context("Unable to decode Content-Encoding header")?;
-                    Some(Encoding::from_str(encoding))
-                } else {
-                    None
-                };
-
                 let content_type = value.headers().get(header::CONTENT_TYPE);
 
                 let content_type = if let Some(content_type) = content_type {
@@ -70,9 +58,8 @@ impl TryFrom<Response> for ResponseValue {
                 };
 
                 ScriptBody {
-                    encoding,
                     content_type,
-                    bytes: value.bytes().into_diagnostic()?,
+                    bytes: value.into_body().read_to_vec().into_diagnostic()?,
                 }
 
                 // if !raw
@@ -118,7 +105,6 @@ impl Value for ResponseValue {
             status         => self.status,
             version        => format!("{:?}", self.version).intern(),
             url            => self.url.clone(),
-            remote_addr    => self.remote_addr.map(|s| s.to_string().intern()),
             headers        => self.headers.clone(),
             content_length => self.content_length.map(|n| n as Int).unwrap_or_default(),
         }
@@ -131,9 +117,6 @@ impl Value for ResponseValue {
         registry.register_field_get("status", |_, this| this.status);
         registry.register_field_get("version", |_, this| format!("{:?}", this.version).intern());
         registry.register_field_get("url", |_, this| this.url.clone());
-        registry.register_field_get("remote_addr", |_, this| {
-            this.remote_addr.map(|s| s.to_string().intern())
-        });
         registry.register_field_get("headers", |_, this| this.headers.clone());
         registry.register_field_get("content_length", |_, this| {
             this.content_length.map(|n| n as Int).unwrap_or_default()
@@ -149,11 +132,8 @@ impl Value for ResponseValue {
                 .map_err(|e| ctx.error(format!("Unable to parse response body as text: {}", e)))
                 .map(IStr::from)
         });
-        registry.register_method::<fn(CallContext<FnCtx>, &_) -> _>("bytes", |ctx, this| {
-            this.body
-                .bytes()
-                .map_err(|e| ctx.error(format!("{}", e)))
-                .map(BytesValue::from)
+        registry.register_method::<fn(&_) -> _>("bytes", |this| {
+            BytesValue::from(this.body.bytes.clone())
         });
     }
 }

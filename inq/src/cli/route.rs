@@ -5,7 +5,7 @@ use inq_lang::{
     eval::{Scope, Special, Variable, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
-use reqwest::Url;
+use url::Url;
 
 use crate::{
     cli::RouteCommand,
@@ -198,12 +198,12 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
     }
 
     let req_body = request.body.borrow().clone();
-    let (request, client) = request.deref().clone().into_reqwest();
+    let (request, agent) = request.deref().clone().into_ureq();
 
     print_request(&request, &req_body)?;
 
     let start = Instant::now();
-    let res = client.execute(request).into_diagnostic()?;
+    let res = agent.run(request).into_diagnostic()?;
     let elapsed = start.elapsed();
 
     let res = ResponseValue::try_from(res)?;

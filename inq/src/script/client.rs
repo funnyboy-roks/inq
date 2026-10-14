@@ -10,9 +10,9 @@ use inq_lang::{
         },
     },
 };
-use reqwest::{blocking::Client, redirect::Policy};
+use ureq::{Agent, tls::TlsConfig};
 
-use crate::{cli::CliClientConfig, script::duration::DurationValue};
+use crate::{cli::CliClientConfig, debug_fmt, script::duration::DurationValue};
 
 #[derive(Debug, Clone, derive_more::Deref, PartialEq, Eq)]
 pub struct ClientConfig(pub RefCell<ClientConfigInner>);
@@ -25,7 +25,7 @@ impl From<ClientConfigInner> for ClientConfig {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ClientConfigInner {
-    redirect: Option<usize>,
+    max_redirects: u32,
     timeout: Option<Duration>,
     connect_timeout: Option<Duration>,
     #[cfg(any(
@@ -47,7 +47,7 @@ pub struct ClientConfigInner {
 impl From<CliClientConfig> for ClientConfig {
     fn from(value: CliClientConfig) -> Self {
         ClientConfigInner {
-            redirect: value.redirects,
+            max_redirects: value.max_redirects.unwrap_or(0),
             timeout: Some(
                 value
                     .timeout
@@ -74,42 +74,22 @@ impl From<CliClientConfig> for ClientConfig {
     }
 }
 
-impl From<ClientConfig> for Client {
+impl From<ClientConfig> for Agent {
     fn from(value: ClientConfig) -> Self {
         let value = value.0.into_inner();
 
-        let mut builder = Client::builder();
+        let mut builder = Agent::config_builder().max_redirects_will_error(true);
 
-        builder = builder.redirect(match value.redirect {
-            Some(n) => Policy::limited(n),
-            None => Policy::none(),
-        });
+        builder = builder.max_redirects(value.max_redirects);
 
-        builder = builder.timeout(value.timeout);
-        builder = builder.connect_timeout(value.connect_timeout);
+        builder = builder.timeout_recv_response(value.timeout);
+        builder = builder.timeout_connect(value.connect_timeout);
 
         if value.allow_insecure {
-            builder = builder.tls_danger_accept_invalid_certs(true);
-            builder = builder.tls_danger_accept_invalid_hostnames(true);
+            builder = builder.tls_config(TlsConfig::builder().disable_verification(true).build());
         }
 
-        #[cfg(any(
-            target_os = "android",
-            target_os = "fuchsia",
-            target_os = "illumos",
-            target_os = "ios",
-            target_os = "linux",
-            target_os = "macos",
-            target_os = "solaris",
-            target_os = "tvos",
-            target_os = "visionos",
-            target_os = "watchos",
-        ))]
-        if let Some(iface) = &value.interface {
-            builder = builder.interface(iface);
-        }
-
-        builder.build().unwrap()
+        builder.build().into()
     }
 }
 
@@ -137,50 +117,12 @@ impl Value for ClientConfig {
     }
 
     fn debug(&self, fmt: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt.debug_struct("Client")
-            .field(
-                "redirects",
-                &ValueRef::from(self.borrow().redirect.map(|n| n as Int)).debug(),
-            )
-            .field(
-                "timeout",
-                &ValueRef::from(self.borrow().timeout.map(DurationValue)).debug(),
-            )
-            .field(
-                "connect_timeout",
-                &ValueRef::from(self.borrow().connect_timeout.map(DurationValue)).debug(),
-            )
-            .field(
-                "interface",
-                #[cfg(any(
-                    target_os = "android",
-                    target_os = "fuchsia",
-                    target_os = "illumos",
-                    target_os = "ios",
-                    target_os = "linux",
-                    target_os = "macos",
-                    target_os = "solaris",
-                    target_os = "tvos",
-                    target_os = "visionos",
-                    target_os = "watchos",
-                ))]
-                &ValueRef::from(self.borrow().interface.as_ref().map(IStr::from)).debug(),
-                #[cfg(not(any(
-                    target_os = "android",
-                    target_os = "fuchsia",
-                    target_os = "illumos",
-                    target_os = "ios",
-                    target_os = "linux",
-                    target_os = "macos",
-                    target_os = "solaris",
-                    target_os = "tvos",
-                    target_os = "visionos",
-                    target_os = "watchos",
-                )))]
-                &std::fmt::from_fn(|fmt| write!(fmt, "<disabled>")),
-            )
-            .field("allow_insecure", &self.borrow().allow_insecure)
-            .finish()
+        debug_fmt! {
+            into fmt as "Client",
+            redirects       => self.borrow().max_redirects as Int,
+            timeout         => self.borrow().timeout.map(DurationValue),
+            connect_timeout => self.borrow().connect_timeout.map(DurationValue),
+        }
     }
 
     fn register(registry: &mut Registry<Self>)
@@ -189,19 +131,10 @@ impl Value for ClientConfig {
     {
         registry.register_field_get_set(
             "redirects",
-            |_, this| this.borrow().redirect.map(|n| n as Int),
+            |_, this| this.borrow().max_redirects as Int,
             |ctx, this, value: ValueRef| {
-                this.borrow_mut().redirect = if let Some(n) = value.downcast::<Int>() {
-                    if n <= 0 {
-                        return Err(ctx.error("Redirects must be > 0"));
-                    } else {
-                        Some(n as usize)
-                    }
-                } else if value.is::<Null>() {
-                    None
-                } else {
-                    return Err(ctx.error("Redirects must be an integer or null"));
-                };
+                let n = value.expect_downcast::<Int>(ctx.span())?;
+                this.borrow_mut().max_redirects = n as u32;
                 Ok(())
             },
         );
@@ -233,42 +166,6 @@ impl Value for ClientConfig {
                     } else {
                         return Err(ctx.error("Timeout must be a Duration or null"));
                     };
-                Ok(())
-            },
-        );
-
-        registry.register_field_get_set(
-            "interface",
-            |_, this| this.borrow().timeout.map(DurationValue),
-            |ctx, this, value: ValueRef| {
-                #[cfg(any(
-                    target_os = "android",
-                    target_os = "fuchsia",
-                    target_os = "illumos",
-                    target_os = "ios",
-                    target_os = "linux",
-                    target_os = "macos",
-                    target_os = "solaris",
-                    target_os = "tvos",
-                    target_os = "visionos",
-                    target_os = "watchos",
-                ))]
-                {
-                    this.borrow_mut().interface = Some(value.expect_downcast::<IStr>(ctx.span())?);
-                }
-                #[cfg(not(any(
-                    target_os = "android",
-                    target_os = "fuchsia",
-                    target_os = "illumos",
-                    target_os = "ios",
-                    target_os = "linux",
-                    target_os = "macos",
-                    target_os = "solaris",
-                    target_os = "tvos",
-                    target_os = "visionos",
-                    target_os = "watchos",
-                )))]
-                crate::warn!("Interface is not supported on your operating system!");
                 Ok(())
             },
         );
