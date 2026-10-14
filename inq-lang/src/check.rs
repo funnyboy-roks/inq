@@ -73,6 +73,7 @@ impl Checker {
         self.root.check_item(item)
     }
 
+    #[cfg(feature = "testing")]
     pub(crate) fn check_expr(&self, expr: &Expr) -> EvalResult<()> {
         self.root.check(expr)
     }

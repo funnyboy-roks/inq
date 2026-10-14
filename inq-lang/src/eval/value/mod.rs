@@ -91,6 +91,12 @@ impl<V: Value> From<V> for ValueRef {
     }
 }
 
+impl<V: Value> From<Rc<V>> for ValueRef {
+    fn from(value: Rc<V>) -> Self {
+        Self::from_ref(value)
+    }
+}
+
 impl<V: Into<ValueRef>> From<Option<V>> for ValueRef {
     fn from(value: Option<V>) -> Self {
         value.map(Into::into).unwrap_or_else(ValueRef::null)
