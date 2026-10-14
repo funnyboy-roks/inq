@@ -18,7 +18,7 @@ miette.workspace = true
 serde.workspace = true
 
 clap = { version = "4.6.1", features = ["derive"] }
-ureq = "3.4.2"
+ureq = { version ="3.4.2", featurs = ["brotli"] }
 serde_json = { version = "1.0.149", features = ["indexmap"] }
 anstream = "1.0.0"
 owo-colors = "4.3.0"
@@ -35,9 +35,9 @@ rustyline = "18.0.1"
 fake = "5.1.0"
 lipsum = "0.9.1"
 url = "2.5.8"
+shell-words = "1.1.1"
 
 inq-lang = { version = "0.2.0-rc.1", path = "../inq-lang/" }
-shell-words = "1.1.1"
 
 [dev-dependencies]
 inq = { path = ".", features = ["testing"] }
