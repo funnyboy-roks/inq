@@ -6,7 +6,7 @@ use crate::{
 
 pub mod cli;
 mod config;
-mod decode;
+// mod decode;
 mod print;
 mod script;
 mod state;

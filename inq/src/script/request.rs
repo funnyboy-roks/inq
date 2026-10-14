@@ -7,11 +7,11 @@ use inq_lang::{
         value::{Value, ValueRef, native::Null},
     },
 };
-use reqwest::{
-    Method, Url,
-    blocking::{Body, Client, Request},
-    header::{self, HeaderMap, HeaderName, HeaderValue},
+use ureq::{
+    Agent,
+    http::{self, HeaderMap, HeaderName, HeaderValue, Request, header},
 };
+use url::Url;
 
 use crate::{
     cli::CliClientConfig,
@@ -32,7 +32,7 @@ pub(crate) enum RequestBody {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RequestValue {
-    pub method: Method,
+    pub method: http::Method,
     pub url: Rc<UrlValue>,
     pub headers: Rc<HeaderMapValue>,
     pub body: RefCell<RequestBody>,
@@ -40,7 +40,7 @@ pub(crate) struct RequestValue {
 }
 
 impl RequestValue {
-    pub(crate) fn new(client: CliClientConfig, method: Method, url: Url) -> Self {
+    pub(crate) fn new(client: CliClientConfig, method: http::Method, url: Url) -> Self {
         Self {
             method,
             url: Rc::new(UrlValue(url)),
@@ -53,28 +53,24 @@ impl RequestValue {
         }
     }
 
-    pub(crate) fn into_reqwest(self) -> (Request, Client) {
+    pub(crate) fn into_ureq(self) -> (Request<Vec<u8>>, Agent) {
         ((&self).into(), self.client.deref().clone().into())
     }
 }
 
-impl From<&RequestValue> for Request {
+impl From<&RequestValue> for Request<Vec<u8>> {
     fn from(value: &RequestValue) -> Self {
-        let mut request = Request::new(value.method.clone(), value.url.0.clone());
-        *request.headers_mut() = value.headers.0.borrow().clone();
-        match &*value.body.borrow() {
-            RequestBody::None => {}
-            RequestBody::Json(json) => {
-                *request.body_mut() = Some(Body::from(json.0.borrow().to_string()));
-            }
-            RequestBody::Text(istr) => {
-                *request.body_mut() = Some(Body::from(istr.as_str().to_string()));
-            }
-            RequestBody::Bytes(bytes) => {
-                *request.body_mut() = Some(Body::from(Vec::from(bytes.deref().clone())));
-            }
-        }
-        request
+        let mut request = Request::builder()
+            .method(value.method.clone())
+            .uri(value.url.0.as_str());
+        *request.headers_mut().unwrap() = value.headers.0.borrow().clone();
+        let request = match &*value.body.borrow() {
+            RequestBody::None => request.body(Vec::new()),
+            RequestBody::Json(json) => request.body(json.0.borrow().to_string().into_bytes()),
+            RequestBody::Text(istr) => request.body(istr.as_str().as_bytes().to_vec()),
+            RequestBody::Bytes(bytes) => request.body(Vec::from(bytes.deref().clone())),
+        };
+        request.expect("Invalid request") // TODO: handle this error
     }
 }
 

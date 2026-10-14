@@ -33,7 +33,7 @@ impl NamedRouteArg {
 pub struct CliClientConfig {
     /// The number of redirects allowed by the client.  If not specified, then no limit is set
     #[clap(long)]
-    pub redirects: Option<usize>,
+    pub max_redirects: Option<u32>,
     /// The maximum time to wait for a response after sending a request.  Default: 30s
     #[clap(long)]
     pub timeout: Option<humantime::Duration>,

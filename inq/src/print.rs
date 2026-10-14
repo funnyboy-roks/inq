@@ -6,8 +6,8 @@ use std::{
 };
 
 use miette::{Context, IntoDiagnostic};
-use reqwest::blocking::Request;
 use serde_json::Value as JsonValue;
+use ureq::http::Request;
 
 use crate::{
     script::{request::RequestBody, response::ResponseValue},
@@ -70,7 +70,7 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
     }
 }
 
-pub fn print_request(req: &Request, body: &RequestBody) -> miette::Result<()> {
+pub fn print_request(req: &Request<Vec<u8>>, body: &RequestBody) -> miette::Result<()> {
     use owo_colors::OwoColorize as _;
 
     eprintln!("{}:", "Request Details".cyan());
@@ -81,10 +81,7 @@ pub fn print_request(req: &Request, body: &RequestBody) -> miette::Result<()> {
         req.version().yellow()
     );
     eprintln!("  {}:         {}", "Method".blue(), req.method().yellow());
-    eprintln!("  {}:            {}", "URL".blue(), req.url().yellow());
-    if let Some(timeout) = req.timeout() {
-        eprintln!("  {}:            {:?}", "Timeout".blue(), timeout.yellow());
-    }
+    eprintln!("  {}:            {}", "URL".blue(), req.uri().yellow());
 
     eprintln!("  {}:", "Headers".blue());
     for (name, value) in req.headers() {
@@ -157,9 +154,6 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
     eprintln!("  {}:            {}", "URL".blue(), res.url.0.yellow());
     eprintln!("  {}:       {:?}", "Duration".blue(), elapsed.yellow());
     eprintln!("  {}:    {}", "Status Code".blue(), status);
-    if let Some(remote_addr) = res.remote_addr {
-        eprintln!("  {}: {}", "Remote Address".blue(), remote_addr.yellow());
-    }
 
     eprintln!("  {}:", "Headers".blue());
     for (name, value) in &*res.headers.0.borrow() {
@@ -170,22 +164,16 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
     }
 
     if !res.body.is_empty() {
-        let encoding = match res.body.encoding() {
-            Some(e) => format!(" ({})", e),
-            None => "".into(),
-        };
-        let encoding = encoding.cyan();
-
         match res.body.content_type.as_deref() {
             Some("application/json") if !raw => {
-                eprintln!("{}{}:", "Response Body (JSON)".cyan(), encoding);
+                eprintln!("{}:", "Response Body (JSON)".cyan());
                 let json = res.body.json().context("Parsing response body as json")?;
                 pretty_print_json(&mut anstream::stdout().lock(), json.0.borrow().clone(), 0)
                     .into_diagnostic()?;
                 println!();
             }
             Some("text/plain") if !raw => {
-                eprintln!("{}{}:", "Response Body (Plaintext)".cyan(), encoding);
+                eprintln!("{}:", "Response Body (Plaintext)".cyan());
                 let text = res
                     .body
                     .text()
@@ -193,12 +181,11 @@ pub fn print_response(res: &ResponseValue, elapsed: Duration, raw: bool) -> miet
                 println!("{}", text);
             }
             None | Some(_) => {
-                eprintln!("{}{}:", "Response Body (Raw)".cyan(), encoding);
-                let bytes = res.body.bytes()?;
+                eprintln!("{}:", "Response Body (Raw)".cyan());
                 let mut stdout = std::io::stdout().lock();
-                if str::from_utf8(&bytes).is_ok() || raw || !stdout.is_terminal() {
+                if res.body.text().is_ok() || raw || !stdout.is_terminal() {
                     stdout
-                        .write_all(&res.body.bytes()?)
+                        .write_all(&res.body.bytes)
                         .into_diagnostic()
                         .context("Writing response body")?;
                 } else {

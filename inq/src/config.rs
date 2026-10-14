@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc, str::FromStr, time::Duration};
+use std::{rc::Rc, str::FromStr};
 
 use fuzzt::processors::{LowerAlphaNumStringProcessor, StringProcessor};
 use inq_lang::{
@@ -6,19 +6,9 @@ use inq_lang::{
     check::Checker,
     eval::{Engine, EvalError, value::ValueRef},
 };
-use reqwest::Url;
+use url::Url;
 
 use crate::script::{self, url::UrlValue};
-
-#[derive(Debug, Clone)]
-#[expect(unused)]
-pub struct OldClientConfig {
-    headers: HashMap<String, String>,
-    redirect: Option<usize>,
-    timeout: Option<Option<Duration>>,
-    connect_timeout: Option<Option<Duration>>,
-    interface: Option<String>,
-}
 
 #[derive(Debug, Clone)]
 pub struct Config {

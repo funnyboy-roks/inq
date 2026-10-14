@@ -8,7 +8,7 @@ use inq_lang::{
         value::{Value, ValueRef, native::Int},
     },
 };
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+use ureq::http::{HeaderMap, HeaderName, HeaderValue};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct HeaderMapValue(pub(crate) RefCell<HeaderMap>);

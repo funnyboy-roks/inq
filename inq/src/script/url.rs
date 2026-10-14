@@ -7,7 +7,7 @@ use inq_lang::{
         value::{Value, ValueRef, native::Int},
     },
 };
-use reqwest::Url;
+use url::Url;
 
 use crate::debug_fmt;
 
