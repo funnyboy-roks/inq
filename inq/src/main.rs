@@ -1,25 +1,7 @@
 use clap::Parser;
 
-use inq::{cli::Cli, run};
-use miette::IntoDiagnostic;
-use syntect::{
-    highlighting::ThemeSet,
-    parsing::{SyntaxDefinition, SyntaxSet, SyntaxSetBuilder},
-};
-
-fn load_syntax() -> SyntaxSet {
-    let syntax = SyntaxDefinition::load_from_str(
-        include_str!("../assets/inq.sublime-syntax"),
-        true,
-        Some("inq"),
-    )
-    .into_diagnostic()
-    .expect("Valid syntax file");
-
-    let mut builder = SyntaxSetBuilder::new();
-    builder.add(syntax);
-    builder.build()
-}
+use inq::{cli::Cli, load_syntax, run};
+use syntect::highlighting::ThemeSet;
 
 fn main() -> miette::Result<()> {
     let cli = Cli::parse();

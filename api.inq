@@ -21,6 +21,16 @@ route login() => POST "/login"
         cookie = cookie_header.value;
     }
 
+route login2(username, password) => POST "/login"
+    before {
+        request.body = json({ username, password });
+    }
+    after {
+        let cookie_header = Cookie.parse(response.headers["set-cookie"]);
+        debug(cookie_header);
+        cookie = cookie_header.value;
+    }
+
 route password_file => POST "/echo"
     before {
         request.body = read_text_file("./password")
@@ -48,7 +58,7 @@ route my_route(name = null) => POST "/echo"
     }
 
 route status(code) => GET "/status/${code}";
-route status2(code = 401) => GET "https://httpbin.org/status/${code}";
+route status2(code = 401) => GET "https://httpbin.org/status/$code";
 route json => POST "/json"
     before {
         request.body = json({

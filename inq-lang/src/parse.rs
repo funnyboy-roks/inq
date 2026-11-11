@@ -268,6 +268,8 @@ impl From<Ident> for SourceSpan {
 pub struct Interpolation {
     pub(crate) index: usize,
     pub(crate) expr: Expr,
+    /// Whether this interpolation is surrounded with `{}` in the source code
+    pub(crate) bracketed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -282,12 +284,24 @@ impl Display for StringExpr {
         let mut last = 0;
         write!(f, "\"")?;
         for e in &self.interpolations {
-            write!(f, "{}", &self.value[last..e.index])?;
-            write!(f, "${{ {} }}", e.expr)?;
+            write!(f, "{}", self.value[last..e.index].replace('$', "\\$"))?;
+            let mut expr_str = e.expr.to_string();
+
+            // hacky to remove parens, but it's fine
+            if expr_str.starts_with('(') && expr_str.ends_with(')') {
+                expr_str.remove(0);
+                expr_str.pop();
+            }
+
+            if e.bracketed {
+                write!(f, "${{ {} }}", expr_str)?;
+            } else {
+                write!(f, "${}", expr_str)?;
+            }
             last = e.index;
         }
         if !self.value[last..].is_empty() {
-            write!(f, "{}", &self.value[last..])?;
+            write!(f, "{}", self.value[last..].replace('$', "\\$"))?;
         }
         write!(f, "\"")?;
         Ok(())
@@ -314,6 +328,7 @@ impl Parse for StringExpr {
                     Ok(Interpolation {
                         index: t.index,
                         expr: t.tokens.parse()?,
+                        bracketed: t.bracketed,
                     })
                 })
                 .collect::<Result<_, _>>()?,
