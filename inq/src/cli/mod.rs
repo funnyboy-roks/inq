@@ -75,19 +75,31 @@ pub struct RouteCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum VariableSubCmd {
-    /// Set a specific variable
+    /// Set the value of a specific variable
     ///
-    /// At least one of `VALUE` or `--expires` must be set.  If
-    /// `--expires` is set without a value, then the expiration date is updated without changing the
-    /// value and vice versa.
+    /// At least one of `VALUE` or `--expires` must be set.  If `--expires` is set without a value,
+    /// then the expiration date is updated without changing the value and vice versa.
     Set {
-        #[clap(short, long)]
+        /// Time until `VARIABLE` should expire
+        ///
+        /// Example:
+        ///     inq var set my_var --expires 5m
+        #[clap(short, long, verbatim_doc_comment)]
         expires: Option<Duration>,
+        /// The variable to update
         variable: String,
+        /// The new value of `VARIABLE`
+        ///
+        /// Example:
+        ///     inq var set my_var hello
+        #[clap(verbatim_doc_comment)]
         value: Option<String>,
     },
     /// Get the value of a persisted variable
-    Get { variable: String },
+    Get {
+        /// The variable to get
+        variable: String,
+    },
     /// List all persisted variables
     List,
 }
@@ -106,18 +118,36 @@ pub struct VariableCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum SubCmd {
-    /// Execute a query
-    #[clap(alias = "r", alias = "q", alias = "query")]
+    /// Execute or view routes
+    ///
+    /// When no route is specified (`inq route`), all available routes will be listed.  
+    /// Optional route arguments will show with a `*`.
+    ///
+    /// Specifying a route will run that route with whatever arguments are provided.
+    /// If the route has default arguments, those arguments may be ommitted.
+    /// Additionally, arguments may be specified in key-value form, see `--arg` for more information.
+    #[clap(alias = "r", alias = "routes", alias = "q", alias = "query")]
     Route(RouteCommand),
     /// Manipulate persisted variables
+    ///
+    /// Commands to get or set the variables persisted in `.inq/variables.json`
     #[clap(alias = "var")]
     Variable(VariableCommand),
     /// Evaluate the contents of a file as if it were a script
+    ///
+    /// This exists largely for debugging purposes, but it is also useful to explore the built-in
+    /// features of inq!
     #[clap()]
     Eval(EvalCommand),
 }
 
+/// Commandline interface for `inq`
 #[derive(Debug, Parser)]
+#[clap(
+    author,
+    version,
+    help_template = "{before-help}{name} {version}\n{author-with-newline}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
+)]
 pub struct Cli {
     #[clap(short, long, default_value = "api.inq")]
     pub config: PathBuf,

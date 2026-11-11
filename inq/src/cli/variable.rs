@@ -17,8 +17,8 @@ pub fn run(var_cmd: VariableCommand, _config: Config, state: &mut State) -> miet
             value,
             expires,
         } => match (value, expires) {
-            (Some(value), expires) => {
-                state.set_persisted_var(variable, value, expires.map(|e| Utc::now() + *e));
+            (Some(value), Some(expires)) => {
+                state.set_persisted_var(variable, value, Some(Utc::now() + *expires));
             }
             (None, Some(expires)) => {
                 let Some(var) = state.get_persisted_var(&variable) else {
@@ -26,6 +26,11 @@ pub fn run(var_cmd: VariableCommand, _config: Config, state: &mut State) -> miet
                 };
 
                 state.set_persisted_var(variable, var.value, Some(Utc::now() + *expires));
+            }
+            (Some(value), None) => {
+                let existing = state.get_persisted_var(&variable);
+
+                state.set_persisted_var(variable, value, existing.and_then(|e| e.expires_at));
             }
             (None, None) => {
                 bail!("Variable value and/or expires must be set");
