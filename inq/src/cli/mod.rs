@@ -75,7 +75,7 @@ pub struct RouteCommand {
 
 #[derive(Debug, Subcommand)]
 pub enum VariableSubCmd {
-    /// Set the value of specific variable
+    /// Set the value of a specific variable
     ///
     /// At least one of `VALUE` or `--expires` must be set.  If `--expires` is set without a value,
     /// then the expiration date is updated without changing the value and vice versa.
