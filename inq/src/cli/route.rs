@@ -5,15 +5,17 @@ use inq_lang::{
     eval::{Scope, Special, Variable, value::ValueRef},
 };
 use miette::{IntoDiagnostic, bail};
+use syntect::highlighting::ThemeSet;
 use url::Url;
 
 use crate::{
     cli::RouteCommand,
     config::Config,
+    load_syntax,
     print::{print_request, print_response},
     script::{request::RequestValue, response::ResponseValue, url::UrlValue},
     state::State,
-    util::ToReqwest,
+    util::{ToReqwest, syntect_to_owo_style},
     warn,
 };
 
@@ -36,46 +38,94 @@ fn list_routes(config: Config) -> miette::Result<()> {
         .max()
         .expect("At least one route is defined")
         .max("Method".len());
+
+    // whether at least one route has at least one default argument
+    let mut has_default_arg = false;
     let args = config
         .routes
         .iter()
         .map(|r| {
-            r.args
-                .iter()
-                .map(|a| a.name.as_istr().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
+            use owo_colors::OwoColorize;
+            (
+                r.args
+                    .iter()
+                    .map(|a| {
+                        format!(
+                            "{}{}",
+                            a.name.as_istr().magenta(),
+                            if a.default_value.is_some() {
+                                has_default_arg = true;
+                                "*"
+                            } else {
+                                ""
+                            }
+                            .yellow(),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                r.args
+                    .iter()
+                    .map(|a| {
+                        a.name.as_istr().len() // name
+                        + 2 // ", " / parens
+                        + usize::from(a.default_value.is_some()) // "*" or ""
+                    })
+                    .sum::<usize>(),
+            )
         })
         .collect::<Vec<_>>();
 
-    let args_len = args.iter().map(|a| a.len()).max().unwrap_or_default() + 2;
+    let max_args_len = args.iter().map(|&(_, len)| len).max().unwrap_or_default();
+
+    let ts = ThemeSet::load_defaults();
+    let syntax = load_syntax();
+    let mut highlighter = syntect::easy::HighlightLines::new(
+        syntax.find_syntax_by_extension("inq").unwrap(),
+        &ts.themes["base16-ocean.dark"],
+    );
 
     {
         use owo_colors::OwoColorize as _;
         println!(
-            "{:<name_len$}{}  {:<method_len$}  {}",
+            "{:>name_len$}{}  {:<method_len$}  {}",
             "Name".blue().bold(),
-            if args_len != 0 {
-                format!("({})", "Args".magenta())
+            if max_args_len != 0 {
+                format!(
+                    "({}){:>2$}",
+                    "Args".magenta(),
+                    "",
+                    max_args_len.saturating_sub("(Args)".len()),
+                )
             } else {
                 String::new()
             },
             "Method".yellow().bold(),
             "Endpoint".green().bold(),
         );
-        for (route, args) in config.routes.iter().zip(args) {
+        for (route, (args, args_len)) in config.routes.iter().zip(args) {
             print!("{:>name_len$}", route.name.to_string().blue(),);
             if route.args.is_empty() {
-                print!("{:>args_len$}", "");
+                print!("{:>max_args_len$}", "");
             } else {
-                print!("({})", args.magenta());
+                print!(
+                    "({}){:>2$}",
+                    args,
+                    "",
+                    max_args_len.saturating_sub(args_len),
+                );
             }
-            print!(
-                "  {:<method_len$}  {}",
-                route.method.as_str().yellow(),
-                route.endpoint.green()
-            );
+            print!("  {:<method_len$}  ", route.method.as_str().yellow(),);
+
+            let endpoint = route.endpoint.to_string();
+            let ranges = highlighter.highlight_line(&endpoint, &syntax).unwrap();
+            for (style, range) in ranges {
+                print!("{}", range.style(syntect_to_owo_style(style)));
+            }
             println!();
+        }
+        if has_default_arg {
+            println!("{}Argument is not required", "*".yellow());
         }
     }
 

@@ -22,3 +22,12 @@ impl ToReqwest for inq_lang::Method {
         }
     }
 }
+
+// Sort of taken from miette
+pub fn syntect_to_owo_style(s: syntect::highlighting::Style) -> owo_colors::Style {
+    owo_colors::Style::new().color(owo_colors::Rgb(
+        s.foreground.r,
+        s.foreground.g,
+        s.foreground.b,
+    ))
+}

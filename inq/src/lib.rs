@@ -1,3 +1,6 @@
+use miette::IntoDiagnostic;
+use syntect::parsing::{SyntaxDefinition, SyntaxSet, SyntaxSetBuilder};
+
 use crate::{
     cli::{Cli, SubCmd},
     config::Config,
@@ -13,6 +16,20 @@ mod state;
 #[cfg(any(test, feature = "testing"))]
 pub mod testing;
 mod util;
+
+pub fn load_syntax() -> SyntaxSet {
+    let syntax = SyntaxDefinition::load_from_str(
+        include_str!("../assets/inq.sublime-syntax"),
+        true,
+        Some("inq"),
+    )
+    .into_diagnostic()
+    .expect("Valid syntax file");
+
+    let mut builder = SyntaxSetBuilder::new();
+    builder.add(syntax);
+    builder.build()
+}
 
 pub fn run(cli: Cli, config_str: &str) -> miette::Result<()> {
     let name = cli.config.file_name().unwrap().to_string_lossy();

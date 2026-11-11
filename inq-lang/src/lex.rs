@@ -301,6 +301,8 @@ impl TokenKind for Keyword {
 pub(crate) struct Interpolation {
     pub(crate) index: usize,
     pub(crate) tokens: TokenStream,
+    /// Whether this interpolation is surrounded with `{}` in the source code
+    pub(crate) bracketed: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -667,6 +669,7 @@ impl<'a> Lexer<'a> {
                         interpolations.push(Interpolation {
                             index: value.len(),
                             tokens: TokenStream::single(tt),
+                            bracketed: false,
                         });
                     }
                     Some('{') => {
@@ -674,6 +677,7 @@ impl<'a> Lexer<'a> {
                         interpolations.push(Interpolation {
                             index: value.len(),
                             tokens,
+                            bracketed: true,
                         });
                     }
                     Some(c) => {
