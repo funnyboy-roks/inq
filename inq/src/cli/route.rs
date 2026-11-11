@@ -164,6 +164,15 @@ fn parse_url(config: &Config, route: &Route, scope: &Rc<Scope>) -> Result<Url, m
 }
 
 fn handle_cli(scope: &Rc<Scope>, route_cmd: &RouteCommand, route: &Route) -> miette::Result<()> {
+    if route_cmd.args.len() > route.args.len() {
+        bail!(
+            "Route `{}` expected at most {} argument(s), but {} were provided",
+            route.name,
+            route.args.len(),
+            route_cmd.args.len(),
+        );
+    }
+
     let mut cli_values = route.args.iter().map(|_| None::<IStr>).collect::<Vec<_>>();
     for (dest, value) in cli_values.iter_mut().zip(route_cmd.args.iter()) {
         *dest = Some(value.intern());

@@ -204,6 +204,31 @@ fn duplicated_pos_and_named() {
 }
 
 #[test]
+fn too_many_positional() {
+    let tempdir = TempDir::new().unwrap();
+    let mut server = mockito::Server::new();
+    let config = format!(r#"let BASE_URL = "{}";"#, server.url())
+        + stringify! {
+            route test(arg) => GET "/test/${arg}"
+                before {
+                    print(request.url);
+                }
+                after {
+                    assert_success();
+                }
+        };
+    eprintln!("{}", config);
+
+    let mock = server.mock("GET", "/test/one").create();
+
+    let cli = Cli::parse_from(["inq", "r", "test", "one", "two", "three"]);
+    let err = exec(tempdir.path(), cli, config).unwrap_err();
+    assert!(err.to_string().contains("expected at most 1 argument")); // best assertion is by to_string here :/
+
+    mock.expect(0);
+}
+
+#[test]
 fn missing_required() {
     let tempdir = TempDir::new().unwrap();
     let mut server = mockito::Server::new();
