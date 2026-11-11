@@ -146,9 +146,7 @@ pub enum SubCmd {
 #[clap(
     author,
     version,
-    help_template = "{before-help}{name} {version}\n{author-with-newline}\n{about-with-newline}\n{usage-heading} {usage}
-
-{all-args}{after-help}"
+    help_template = "{before-help}{name} {version}\n{author-with-newline}\n{about-with-newline}\n{usage-heading} {usage}\n\n{all-args}{after-help}"
 )]
 pub struct Cli {
     #[clap(short, long, default_value = "api.inq")]
