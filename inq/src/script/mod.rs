@@ -9,7 +9,7 @@ use rustyline::DefaultEditor;
 
 use crate::script::{
     bytes_value::BytesValue, client::ClientConfig, cookie::CookieValue, datetime::DateTimeValue,
-    duration::DurationValue, header::HeaderMapValue, json::Json, process::ChildValue,
+    duration::DurationValue, form::Form, header::HeaderMapValue, json::Json, process::ChildValue,
     request::RequestValue, response::ResponseValue, url::UrlValue,
 };
 
@@ -19,6 +19,7 @@ pub(crate) mod cookie;
 pub(crate) mod datetime;
 pub(crate) mod duration;
 pub(crate) mod faker;
+pub(crate) mod form;
 pub(crate) mod header;
 pub(crate) mod json;
 pub(crate) mod process;
@@ -68,6 +69,7 @@ pub fn base_engine() -> Rc<Engine> {
     engine.register_type::<ClientConfig>();
 
     engine.register_type::<Json>();
+    engine.register_type::<Form>();
     engine.register_type::<BytesValue>();
     engine.register_type::<DurationValue>();
     engine.register_type::<CookieValue>();
@@ -91,6 +93,7 @@ pub fn base_engine() -> Rc<Engine> {
     });
 
     global.declare_function("json", Json::from_value);
+    global.declare_function("form", Form::from_value);
     global.declare_function("assert", |ctx, b: bool| {
         if b {
             Ok(ValueRef::null())

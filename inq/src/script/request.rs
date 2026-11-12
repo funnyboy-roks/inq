@@ -17,8 +17,8 @@ use crate::{
     cli::CliClientConfig,
     debug_fmt,
     script::{
-        bytes_value::BytesValue, client::ClientConfig, header::HeaderMapValue, json::Json,
-        url::UrlValue,
+        bytes_value::BytesValue, client::ClientConfig, form::Form, header::HeaderMapValue,
+        json::Json, url::UrlValue,
     },
 };
 
@@ -28,6 +28,7 @@ pub(crate) enum RequestBody {
     Json(Rc<Json>),
     Text(IStr),
     Bytes(Rc<BytesValue>),
+    Form(Rc<Form>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,24 +54,32 @@ impl RequestValue {
         }
     }
 
-    pub(crate) fn into_ureq(self) -> (Request<Vec<u8>>, Agent) {
+    pub(crate) fn into_ureq(self) -> (Request<AnyBody>, Agent) {
         ((&self).into(), self.client.deref().clone().into())
     }
 }
 
-impl From<&RequestValue> for Request<Vec<u8>> {
+pub(crate) enum AnyBody {
+    None,
+    Bytes(Vec<u8>),
+    Form(Rc<Form>),
+}
+
+impl From<&RequestValue> for Request<AnyBody> {
     fn from(value: &RequestValue) -> Self {
         let mut request = Request::builder()
             .method(value.method.clone())
             .uri(value.url.0.as_str());
         *request.headers_mut().unwrap() = value.headers.0.borrow().clone();
-        let request = match &*value.body.borrow() {
-            RequestBody::None => request.body(Vec::new()),
-            RequestBody::Json(json) => request.body(json.0.borrow().to_string().into_bytes()),
-            RequestBody::Text(istr) => request.body(istr.as_str().as_bytes().to_vec()),
-            RequestBody::Bytes(bytes) => request.body(Vec::from(bytes.deref().clone())),
+
+        let body = match &*value.body.borrow() {
+            RequestBody::None => AnyBody::None,
+            RequestBody::Json(json) => AnyBody::Bytes(json.0.borrow().to_string().into_bytes()),
+            RequestBody::Text(istr) => AnyBody::Bytes(istr.as_str().as_bytes().to_vec()),
+            RequestBody::Bytes(bytes) => AnyBody::Bytes(Vec::from(bytes.deref().clone())),
+            RequestBody::Form(form) => AnyBody::Form(form.clone()),
         };
-        request.expect("Invalid request") // TODO: handle this error
+        request.body(body).expect("Invalid request") // TODO: handle this error
     }
 }
 
@@ -96,6 +105,7 @@ impl Value for RequestValue {
             RequestBody::Json(json) => ValueRef::from_ref(json.clone()),
             RequestBody::Text(istr) => ValueRef::from(istr.clone()),
             RequestBody::Bytes(bytes) => ValueRef::from_ref(bytes.clone()),
+            RequestBody::Form(form) => ValueRef::from_ref(form.clone()),
         };
         debug_fmt! {
             into f as "Url",
@@ -129,6 +139,7 @@ impl Value for RequestValue {
                 RequestBody::Json(json) => ValueRef::from_ref(json.clone()),
                 RequestBody::Text(text) => text.clone().into(),
                 RequestBody::Bytes(bytes) => ValueRef::from_ref(bytes.clone()),
+                RequestBody::Form(form) => ValueRef::from_ref(form.clone()),
             },
             |ctx, this, rhs| {
                 if rhs.is::<Null>() {
@@ -152,8 +163,14 @@ impl Value for RequestValue {
                         header::CONTENT_TYPE,
                         HeaderValue::from_str("application/octet-stream").unwrap(),
                     );
+                } else if let Some(form) = rhs.downcast_rc::<Form>() {
+                    *this.body.borrow_mut() = RequestBody::Form(form);
+                    this.headers.0.borrow_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_str("multipart/form-data").unwrap(),
+                    );
                 } else {
-                    return Err(ctx.error("Invalid value for body.  Must be `Json` or `String`"));
+                    return Err(ctx.error("Invalid value for body.  Must be of type String, Json, null, Bytes, or Form"));
                 }
                 Ok(())
             },

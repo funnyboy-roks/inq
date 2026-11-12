@@ -10,7 +10,10 @@ use serde_json::Value as JsonValue;
 use ureq::http::Request;
 
 use crate::{
-    script::{request::RequestBody, response::ResponseValue},
+    script::{
+        request::{AnyBody, RequestBody},
+        response::ResponseValue,
+    },
     state::PersistedVariable,
 };
 
@@ -70,7 +73,7 @@ fn pretty_print_json(w: &mut impl Write, json: JsonValue, indent: usize) -> std:
     }
 }
 
-pub fn print_request(req: &Request<Vec<u8>>, body: &RequestBody) -> miette::Result<()> {
+pub fn print_request(req: &Request<AnyBody>, body: &RequestBody) -> miette::Result<()> {
     use owo_colors::OwoColorize as _;
 
     eprintln!("{}:", "Request Details".cyan());
@@ -110,21 +113,30 @@ pub fn print_request(req: &Request<Vec<u8>>, body: &RequestBody) -> miette::Resu
 
             let hex = hex::encode(Vec::from(bytes.deref().clone()));
             eprintln!("{}", hex);
-        } // RequestBody::File(path) => {
-          //     eprintln!(
-          //         "{}: {}",
-          //         "Request Body (File)".cyan(),
-          //         path.display().yellow()
-          //     );
-          // }
-          // RequestBody::Raw(raw) => {
-          //     eprintln!("{}:", "Request Body (Raw)".cyan());
-          //     if let Ok(s) = str::from_utf8(raw) {
-          //         eprintln!("{}", s);
-          //     } else {
-          //         eprintln!("{}", base64::engine::general_purpose::STANDARD.encode(raw));
-          //     }
-          // }
+        }
+        RequestBody::Form(form) => {
+            eprintln!("{}:", "Request Body (Form)".cyan());
+
+            for (k, v) in form.0.iter() {
+                eprintln!(
+                    "  {}={}",
+                    k.blue().bold(),
+                    match v {
+                        crate::script::form::Field::Text(t) => format!(
+                            "{} {}",
+                            JsonValue::String(t.to_string()).yellow(),
+                            "(text)".bright_black()
+                        ),
+                        crate::script::form::Field::Bytes(bytes) => format!(
+                            "{} {}",
+                            hex::encode(Vec::from(bytes.deref())).yellow(),
+                            "(bytes)".bright_black()
+                        ),
+                    },
+                );
+            }
+            eprintln!();
+        }
     }
 
     eprintln!("{}", "Sending Request...".purple());
