@@ -31,6 +31,14 @@ route login2(username, password) => POST "/login"
         cookie = cookie_header.value;
     }
 
+route form => POST "/form"
+    before {
+        request.body = form({
+            username: user,
+            password: password,
+        });
+    }
+
 route password_file => POST "/echo"
     before {
         request.body = read_text_file("./password")

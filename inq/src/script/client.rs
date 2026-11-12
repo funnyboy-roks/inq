@@ -78,7 +78,9 @@ impl From<ClientConfig> for Agent {
     fn from(value: ClientConfig) -> Self {
         let value = value.0.into_inner();
 
-        let mut builder = Agent::config_builder().max_redirects_will_error(true);
+        let mut builder = Agent::config_builder()
+            .max_redirects_will_error(true)
+            .http_status_as_error(false);
 
         builder = builder.max_redirects(value.max_redirects);
 

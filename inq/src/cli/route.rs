@@ -1,4 +1,4 @@
-use std::{ops::Deref, rc::Rc, str::FromStr, time::Instant};
+use std::{io::Read, ops::Deref, rc::Rc, str::FromStr, time::Instant};
 
 use inq_lang::{
     IStr, Route, StringExt,
@@ -6,6 +6,7 @@ use inq_lang::{
 };
 use miette::{IntoDiagnostic, bail};
 use syntect::highlighting::ThemeSet;
+use ureq::http::Request;
 use url::Url;
 
 use crate::{
@@ -13,7 +14,11 @@ use crate::{
     config::Config,
     load_syntax,
     print::{print_request, print_response},
-    script::{request::RequestValue, response::ResponseValue, url::UrlValue},
+    script::{
+        request::{AnyBody, RequestValue},
+        response::ResponseValue,
+        url::UrlValue,
+    },
     state::State,
     util::{ToReqwest, syntect_to_owo_style},
     warn,
@@ -253,7 +258,21 @@ pub fn run(route_cmd: RouteCommand, config: Config, state: &mut State) -> miette
     print_request(&request, &req_body)?;
 
     let start = Instant::now();
-    let res = agent.run(request).into_diagnostic()?;
+
+    let (parts, body) = request.into_parts();
+    let res = match body {
+        AnyBody::None => agent.run(Request::from_parts(parts, ())),
+        AnyBody::Bytes(bytes) => agent.run(Request::from_parts(parts, bytes)),
+        AnyBody::Form(form) => {
+            let mut s = String::new();
+            form.to_ureq().read_to_string(&mut s).unwrap();
+            dbg!(s);
+            let ureq = form.to_ureq();
+            agent.run(Request::from_parts(parts, ureq))
+        }
+    }
+    .into_diagnostic()?;
+
     let elapsed = start.elapsed();
 
     let res = ResponseValue::try_from(res)?;
